@@ -36,6 +36,15 @@ PURPLE: .word 0x6f2da8
 GREY: .word 0x808080
 BLACK: .word 0x000000
 
+# An array of the gem colours
+GEM_COLOURS:
+        .word 0xff0000
+        .word 0x0000ff
+        .word 0x00674f
+        .word 0xff8000
+        .word 0xffff00
+        .word 0x6f2da8
+
 # The boundaries for the playing field
 LEFT_BOUNDARY: .word 4 # the x coordinate for the left wall
 RIGHT_BOUNDARY: .word 11 # the x coordinate for the right wall
@@ -65,7 +74,8 @@ main:
 # Initialize the game
 
 lw $s0, ADDR_DSPL # save the starting address of the bitmap since we will be referencing it a lot
-la $s1, bitmap_copy # similarly, save the starting address of the bitmap copy  
+la $s1, bitmap_copy # similarly, save the starting address of the bitmap copy 
+la $s2, GEM_COLOURS # save the starting address of the array storing the gem colours
 
 ## Draw the Grid ##
 jal draw_grid                   
@@ -110,13 +120,8 @@ lw $t0, has_landed                  # Store whether the players column has reach
 bne $t0, 1, draw_screen             # If column has not reached the floor or landed on a past column, skip this part
 
 ## Check for matches
-addi $a0, $zero, 27                 # right now this only checks specifically for a horizontal match for blue on the bottom row
-lw $a1, BLUE
-jal find_horizontal_match
-
-addi $a0, $zero, 5                 # right now this only checks specifically for a horizontal match for blue in the first column
-lw $a1, BLUE
-jal find_vertical_match
+jal find_all_horizontal_matches
+jal find_all_vertical_matches
 
 ## Remove any matching gems
 jal remove_marked_locations
@@ -388,6 +393,7 @@ respond_to_Q:
 li $v0, 10                          # Quit gracefully
 syscall
 
+###############################################################################################################
 
 ## The code executed when the "w" key is pressed
 ## - shuffles the gems in the player's column downward
@@ -409,6 +415,7 @@ sw $t4, 8($t1)                  # third colour goes in the first spot
 jal draw_current_column         # Draw the updated order of gems to the bitmap
 j keyboard_input_processed      # return to game loop
 
+###############################################################################################################
 
 ## The code executed when the "a" key is pressed
 ## - move the column to the left
@@ -427,6 +434,7 @@ sw $t2, 0($t1)                              # update the x position of the colum
 jal draw_current_column                     # Draw the column in its updated location to the bitmap
 j keyboard_input_processed                  # return to game loop
 
+###############################################################################################################
 
 ## The code executed when the "s" key is pressed
 ## - move the column down
@@ -444,6 +452,7 @@ sw $t2, 4($t1)                              # update the y position of the colum
 jal draw_current_column                     # Draw the column in its updated location to the bitmap
 j keyboard_input_processed                  # return to game loop
 
+###############################################################################################################
 
 ## The code executed when the "d" key is pressed
 ## - move the column to the right
@@ -461,6 +470,8 @@ sw $t2, 0($t1)                              # update the x position of the colum
 
 jal draw_current_column                     # Draw the column in its updated location to the bitmap
 j keyboard_input_processed                  # return to game loop
+
+###############################################################################################################
 
 ## The check_left function
 ## - checks if the current column can move left
@@ -491,6 +502,7 @@ left_blocked:                               # in this case the left side of the 
 sw $zero, can_move_left                     # set can_move_left to 0 to indicate that the column cannot move left
 jr $ra 
 
+###############################################################################################################
 
 ## The check_right function
 ## - checks if the current column can move right
@@ -521,6 +533,7 @@ right_blocked:                              # in this case the right side of the
 sw $zero, can_move_right                    # set can_move_right to 0 to indicate that the column cannot move right
 jr $ra 
 
+###############################################################################################################
 
 ## The check_landed function
 ## - checks if the current column has either reached the floor or landed on a past column
@@ -550,6 +563,7 @@ addi $t3, $zero, 1                          # store the value of 1 in $t3
 sw $t3, has_landed                          # set has_landed to 1 to indicate that the column has either reached the floor or landed on a past column
 jr $ra 
 
+###############################################################################################################
 
 ##  The find_horizontal_match function
 ##  - Looks for a horizontal match of three or more for a given colour on a given row
@@ -627,6 +641,8 @@ addi $sp, $sp, 4                            # move the stack pointer to the top 
 find_horizontal_match_end:
 jr $ra                                      # return to the calling program
 
+###############################################################################################################
+
 ##  The horizontal_mark_for_removal function
 ##  - given a horizontal match, mark the locations in the bitmap copy 
 #
@@ -652,6 +668,8 @@ j horizontal_mark_loop_start
 
 horizontal_mark_loop_end:
 jr $ra                                      # return to the calling program
+
+###############################################################################################################
 
 ##  The find_vertical_match function
 ##  - Looks for a vertical match of three or more for a given colour on a given column
@@ -729,6 +747,7 @@ addi $sp, $sp, 4                            # move the stack pointer to the top 
 find_vertical_match_end:
 jr $ra                                      # return to the calling program
 
+###############################################################################################################
 
 ##  The vertical_mark_for_removal function
 ##  - given a vertical match, mark the locations in the bitmap copy 
@@ -757,7 +776,9 @@ vertical_mark_loop_end:
 jr $ra                                      # return to the calling program
 
 
-## The remove_marked_locations function
+###############################################################################################################
+
+## The remove_marked_locations function 
 ## - goes through the bitmap copy and removes all the marked locations from the actual bitmap
 
 remove_marked_locations:
@@ -784,3 +805,117 @@ j remove_marked_locations_loop_start
 
 remove_marked_locations_loop_end:
 jr $ra
+
+###############################################################################################################
+
+##  The find_all_vertical_matches function
+##  - Looks for all the vertical matches of three or more in the playing grid
+
+find_all_vertical_matches:
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $ra, 0($sp)                                  # push $ra onto the stack
+
+add $t1, $zero, $zero                           # $t1 stores the offset from the starting address of the colour array
+
+vertical_loop_colours_start:
+beq $t1, 24, vertical_loop_colours_end          # when the offset reaches 24 we have checked all the colours
+add $t0, $s2, $t1                               # add the offset to the starting address
+lw $t2, 0($t0)                                  # load the colour at this address into $t2
+addi $t3, $zero, 5                              # the first column to check is column 5
+
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $t1, 0($sp)                                  # push $t1 onto the stack
+
+
+    vertical_loop_columns_start:                # now that we have a colour, we need to loop through all the columns
+    beq $t3, 11, vertical_loop_columns_end      # when $t3 reaches 11, we would have looped through all the columns
+    add $a0, $zero, $t3                         # load the column into $a0
+    add $a1, $zero, $t2                         # load the colour into $a1
+    
+    addi $sp, $sp, -4                           # move the stack pointer to an empty location
+    sw $t3, 0($sp)                              # push $t3 onto the stack
+    addi $sp, $sp, -4                           # move the stack pointer to an empty location
+    sw $t2, 0($sp)                              # push $t2 onto the stack
+    
+    jal find_vertical_match                     # look for a vertical match based on this colour and column
+    
+    lw $t2, 0($sp)                              # pop $t2 from the stack
+    addi $sp, $sp, 4                            # move the stack pointer to the top stack element
+    lw $t3, 0($sp)                              # pop $t3 from the stack
+    addi $sp, $sp, 4                            # move the stack pointer to the top stack element
+    
+    addi $t3, $t3, 1                            # increment the columm by 1
+    j vertical_loop_columns_start               # repeat for the next column 
+    
+    vertical_loop_columns_end:
+    
+lw $t1, 0($sp)                                  # pop $t1 from the stack
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+
+addi $t1, $t1, 4                                # move on to the next colour
+j vertical_loop_colours_start
+
+vertical_loop_colours_end:
+
+lw $ra, 0($sp)                                  # pop $ra from the stack
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+
+jr $ra                                          # return to game loop
+
+###############################################################################################################
+
+##  The find_all_horizontal_matches function
+##  - looks for all the horizontal matches of three or more in the playing grid
+
+find_all_horizontal_matches:
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $ra, 0($sp)                                  # push $ra onto the stack
+
+add $t1, $zero, $zero                           # $t1 stores the offset from the starting address of the colour array
+
+horizontal_loop_colours_start:
+beq $t1, 24, horizontal_loop_colours_end        # when the offset reaches 24 we have checked all the colours
+add $t0, $s2, $t1                               # add the offset to the starting address
+lw $t2, 0($t0)                                  # load the colour at this address into $t2
+addi $t3, $zero, 15                             # the first row to check is row 15
+
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $t1, 0($sp)                                  # push $t1 onto the stack
+
+
+    horizontal_loop_rows_start:                 # now that we have a colour, we need to loop through all the rows
+    beq $t3, 28, horizontal_loop_rows_end       # when $t3 reaches 28, we would have looped through all the rows
+    add $a0, $zero, $t3                         # load the row into $a0
+    add $a1, $zero, $t2                         # load the colour into $a1
+    
+    addi $sp, $sp, -4                           # move the stack pointer to an empty location
+    sw $t3, 0($sp)                              # push $t3 onto the stack
+    addi $sp, $sp, -4                           # move the stack pointer to an empty location
+    sw $t2, 0($sp)                              # push $t2 onto the stack
+    
+    jal find_horizontal_match                   # look for a horizontal match based on this colour and row
+    
+    lw $t2, 0($sp)                              # pop $t2 from the stack
+    addi $sp, $sp, 4                            # move the stack pointer to the top stack element
+    lw $t3, 0($sp)                              # pop $t3 from the stack
+    addi $sp, $sp, 4                            # move the stack pointer to the top stack element
+    
+    addi $t3, $t3, 1                            # increment the row by 1
+    j horizontal_loop_rows_start                # repeat for the next row 
+    
+    horizontal_loop_rows_end:
+    
+lw $t1, 0($sp)                                  # pop $t1 from the stack
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+
+addi $t1, $t1, 4                                # move on to the next colour
+j horizontal_loop_colours_start
+
+horizontal_loop_colours_end:
+
+lw $ra, 0($sp)                                  # pop $ra from the stack
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+
+jr $ra                                          # return to game loop
+
+###############################################################################################################
