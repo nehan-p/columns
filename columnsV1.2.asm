@@ -108,19 +108,26 @@ jal check_landed                    # Check if the column has reached the floor 
 ## Check if column has landed ##
 lw $t0, has_landed                  # Store whether the players column has reached the floor or landed on a past column
 bne $t0, 1, draw_screen             # If column has not reached the floor or landed on a past column, skip this part
-jal initialize_player_column        # Initialize a new column 
-jal draw_current_column             # Draw this new column to the screen
-
-# 3. Draw the screen
-draw_screen:
 
 ## Check for matches
 addi $a0, $zero, 27                 # right now this only checks specifically for a horizontal match for blue on the bottom row
 lw $a1, BLUE
 jal find_horizontal_match
 
+addi $a0, $zero, 5                 # right now this only checks specifically for a horizontal match for blue in the first column
+lw $a1, BLUE
+jal find_vertical_match
+
 ## Remove any matching gems
 jal remove_marked_locations
+
+jal initialize_player_column        # Initialize a new column 
+jal draw_current_column             # Draw this new column to the screen
+
+# 3. Draw the screen
+draw_screen:
+
+
 
 # 4. Sleep
 li $v0, 32
@@ -644,6 +651,109 @@ addi $t2, $t2, 4                            # increment $t2 accordingly
 j horizontal_mark_loop_start
 
 horizontal_mark_loop_end:
+jr $ra                                      # return to the calling program
+
+##  The find_vertical_match function
+##  - Looks for a vertical match of three or more for a given colour on a given column
+#
+# $a0 = the column to check
+# $a1 = the colour we are checking for 
+
+find_vertical_match:
+
+add $t0, $zero, $zero                       # $t0 is used to store the current number of consectutive gems
+add $t6, $zero, $zero                       # $t6 stores the end y for a match, if this is changed from zero a match has been found
+addi $t1, $zero, 15                         # $t1 is the loop variable which starts at 15 since that is the y-coordinate of the first row in the playing grid
+
+# we need to convert the row and column to an address in the bitmap
+add $t2, $zero, $t1                         # $t2 holds a copy of $t1
+sll $t2, $t2, 7                             # multiply this y-value by 128 to get the vertical offset
+add $t3, $s0, $t2                           # add this vertical offset to $s0 (bitmap address) and store in $t3
+add $t7, $zero, $a0                         # $t7 holds a copy of $a0
+sll $t7, $t7, 2                             # multiply the x-value (column) by 4 to get the horizontal offset
+add $t3, $t3, $t7                           # add this horizontal offset to $t3
+
+find_vertical_match_loop_start:
+beq $t1, 28, find_vertical_match_loop_end   # when $t1 reaches 28 we would have iterated through the 13 rows in the grid, so loop is complete
+lw $t2, 0($t3)                              # get the colour at the address specified by $t3 and store in $t2
+
+bne $t2, $a1, not_colour_looking_for_vertical       # check if the colour at the address is the colour we are looking for
+bne $t0, $zero, not_first_occurrence_vertical       # check if this is the first time we are seeing this colour
+add $t4, $zero, $t1                                 # if this is the first occurrence, use $t4 to store the starting row of a potential match
+
+not_first_occurrence_vertical:
+addi $t0, $t0, 1                            # if this is not the first occurrence then $t4 already has a value so just increment the count of consecutive gems
+
+j increment_vertical_loop_variables       # skip the else logic
+
+not_colour_looking_for_vertical:
+blt $t0, 3, no_vertical_match               # if we moved on to a different colour and count is less than 3 then we do not have a match
+add $t5, $zero, $t4                         # if we do have a match of three or more, use $t5 to store the starting row of this match
+add $t6, $t4, $t0                           # use $t6 to store the ending row (starting row + count) of the match
+addi $t6, $t6, -1                           # we need to subtract 1 since the starting row is included
+
+no_vertical_match:
+add $t0, $zero, $zero                       # if we did not find a match simply reset count to 0 and move along
+
+increment_vertical_loop_variables:
+addi $t1, $t1, 1                            # increment the loop variable
+addi $t3, $t3, 128                          # increment the bitmap address accordingly
+
+j find_vertical_match_loop_start            # repeat the process on the next row
+
+find_vertical_match_loop_end:
+
+# Note that the loop could have finished on a match, so we need to check for this
+
+blt $t0, 3, no_ending_vertical_match        # check if the number of consectuve gems ($t0) < 3, in this case there is not match
+add $t5, $zero, $t4                         # if we do have a match of three or more, use $t5 to store the starting row of this match
+add $t6, $t4, $t0                           # use $t6 to store the ending row (starting row + count) of the match
+addi $t6, $t6, -1                           # we need to subtract 1 since the starting row is included
+
+no_ending_vertical_match:
+
+# this code run when there is a match
+beq $t6, $zero, find_vertical_match_end     # check if $t6 was updated from 0
+
+addi $sp, $sp, -4                           # move the stack pointer to an empty location
+sw $ra, 0($sp)                              # push $ra onto the stack
+                                            
+                                            # note that $a0 is still the original value which specifies the column, so we do not need to update its contents
+add $a1, $zero, $t5                         # load the the y coordinate of the starting row into $a1
+add $a2, $zero, $t6                         # load the the y coordinate of the ending row into $a2
+jal vertical_mark_for_removal               # mark this match for removal in the bitmap copy
+
+lw $ra, 0($sp)                              # pop $ra from the stack
+addi $sp, $sp, 4                            # move the stack pointer to the top stack element
+
+find_vertical_match_end:
+jr $ra                                      # return to the calling program
+
+
+##  The vertical_mark_for_removal function
+##  - given a vertical match, mark the locations in the bitmap copy 
+#
+# $a0 = the x coordinate of the vertical match
+# $a1 = the y coordinate of the starting row
+# $a2 = the y coordinate of the ending row
+
+vertical_mark_for_removal:
+
+add $t1, $zero, $a1                         # store a copy of $a1 in $t1
+sll $t1, $t1, 7                             # multiply this by 128 to get the vertical offset
+add $t2, $s1, $t1                           # add this vertical offset to $s1 (bitmap copy address) and store in $t2
+sll $a0, $a0, 2                             # multiply the x-value (column) by 4 to get the horizontal offset
+add $t2, $t2, $a0                           # add this horizontal offset to $t2
+lw  $t3, RED                                # load the colour red into $t3, this will be used to mark the locations
+
+vertical_mark_loop_start:
+bgt $a1, $a2, vertical_mark_loop_end        # $a1 will be our loop variable, once it is > $a2 we have marked all the gems in the match
+sw $t3, 0($t2)                              # mark the address in the bitmap copy 
+addi $a1, $a1, 1                            # increment $a1 by 1
+addi $t2, $t2, 128                          # increment $t2 accordingly
+j vertical_mark_loop_start
+
+vertical_mark_loop_end:
 jr $ra                                      # return to the calling program
 
 
