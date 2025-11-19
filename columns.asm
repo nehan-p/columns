@@ -1,17 +1,17 @@
 ################# CSC258 Assembly Final Project ###################
 # This file contains our implementation of Columns.
 #
-# Student 1: Name, Student Number
-# Student 2: Name, Student Number (if applicable)
+# Student 1: Raphael Ramesar, 1011069736
+# Student 2: Nehan Punjani, 1010928141
 #
 # We assert that the code submitted here is entirely our own 
 # creation, and will indicate otherwise when it is not.
 #
 ######################## Bitmap Display Configuration ########################
-# - Unit width in pixels:       TODO
-# - Unit height in pixels:      TODO
-# - Display width in pixels:    TODO
-# - Display height in pixels:   TODO
+# - Unit width in pixels:       8
+# - Unit height in pixels:      8
+# - Display width in pixels:    256
+# - Display height in pixels:   256
 # - Base Address for Display:   0x10008000 ($gp)
 ##############################################################################
 
@@ -117,21 +117,28 @@ jal check_landed                    # Check if the column has reached the floor 
 
 ## Check if column has landed ##
 lw $t0, has_landed                  # Store whether the players column has reached the floor or landed on a past column
-bne $t0, 1, draw_screen             # If column has not reached the floor or landed on a past column, skip this part
+bne $t0, 1, skip_landing_logic      # If column has not reached the floor or landed on a past column, skip this part
 
-## Check for matches
-jal find_all_horizontal_matches
-jal find_all_vertical_matches
-jal find_all_diagonal_matches
+## Check for matches (a column landing signals that a match could have been formed) ##
 
-## Remove any matching gems
-jal remove_marked_locations
+match_checking_loop_start:
+jal find_all_horizontal_matches         # find and mark all the horizontal matches in the bitmap copy
+jal find_all_vertical_matches           # find and mark all the vertical matches in the bitmap copy
+jal find_all_diagonal_matches           # find and mark all the diagonal matches in the bitmap copy
+jal check_for_no_matches                # check if there are no matches (value returned in $v0)
 
+beq $v0, 1, match_checking_loop_end     # if $v0 == 1 then there are no matches so we can stop checking 
+
+jal remove_marked_locations             # if $v0 == 0 then there are matches, so remove those gems
+jal drop_all_rows                       # drop all of the unsupported gems
+j match_checking_loop_start             # we repeat this process in case dropping the unsupported gems formed new matches
+
+match_checking_loop_end:
 jal initialize_player_column        # Initialize a new column 
 jal draw_current_column             # Draw this new column to the screen
 
 # 3. Draw the screen
-draw_screen:
+skip_landing_logic:
 
 
 
@@ -274,7 +281,7 @@ li $a1, 6
 syscall
 
 # Put the corresponding colour in $t0 based on the number generated
-# 0 -> red, 1 -> green, 2 -> blue, 3 -> orange, 4 -> yellow, 5 -> purple
+# 0 -> red, 1 -> green, 2 -> blue, 3 -> orange, 4 -> yellow, 5 -> pruple
 
 check_red: bne $a0, 0, check_green          # if $a0 != 0 then check the case for green
            lw $t1, RED                      # else set  $t0 to RED
@@ -387,6 +394,7 @@ sw $t2, 256($t3)                # paint the third gem to the bitmap
 
 jr $ra                          # return to the calling program
 
+###############################################################################################################
 
 ## The code executed when the "q" key is pressed
 ## - exits the program gracefully
@@ -394,10 +402,12 @@ respond_to_Q:
 li $v0, 10                          # Quit gracefully
 syscall
 
+###############################################################################################################
+
 game_over:
     li $v0, 10      # exit program
     syscall
-
+    
 ###############################################################################################################
 
 ## The code executed when the "w" key is pressed
@@ -563,20 +573,17 @@ bne $t2, $t3, below_blocked                 # if the colour at that location is 
 sw $zero, has_landed                        # set has_landed to 0 to indicate that the column has not reached the floor or landed on a past column
 jr $ra                                      # return to game loop
 
-below_blocked:                              # in this case below the column is blocked
-    addi $t3, $zero, 1                      # store the value of 1 in $t3
-    sw $t3, has_landed                      # set has_landed to 1 to indicate that the column has landed
+below_blocked:                              # in this case the right side of the column is blocked
+addi $t3, $zero, 1                          # store the value of 1 in $t3
+sw $t3, has_landed                          # set has_landed to 1 to indicate that the column has either reached the floor or landed on a past column
 
-    # check if the column has landed at the very top position
-    la  $t1, current_column                 # load address of the column struct
-    lw  $t2, 4($t1)                         # $t2 = y position of the column
-    lw  $t4, TOP_BOUNDARY                   # $t4 = top boundary (14)
-    addi $t4, $t4, 1                        # $t4 = top play row (15)
+# check if the column has landed at the very top position
+lw  $t2, 4($t1)                         # $t2 = y position of the column
+lw  $t4, TOP_BOUNDARY                   # $t4 = top boundary (14)
+addi $t4, $t4, 1                        # $t4 = top play row (15)
 
-    beq $t2, $t4, game_over                 # if y == top play row, end the game
-
-    jr $ra                                  # otherwise, return to game loop
- 
+beq $t2, $t4, game_over                 # if y == top play row, end the game
+jr $ra                                  # otherwise, return to game loop
 
 ###############################################################################################################
 
@@ -588,7 +595,7 @@ below_blocked:                              # in this case below the column is b
 
 find_horizontal_match:
 
-add $t0, $zero, $zero                       # $t0 is used to store the current number of consecutive gems
+add $t0, $zero, $zero                       # $t0 is used to store the current number of consectutive gems
 add $t6, $zero, $zero                       # $t6 stores the end x for a match, if this is changed from zero a match has been found
 addi $t1, $zero, 5                          # $t1 is the loop variable which starts at 5 since that is the x-coordinate of the first column in the playing grid
 
@@ -790,6 +797,7 @@ j vertical_mark_loop_start
 vertical_mark_loop_end:
 jr $ra                                      # return to the calling program
 
+
 ###############################################################################################################
 
 ## The remove_marked_locations function 
@@ -806,7 +814,7 @@ lw $t9, BLACK                                       # load the colour black into
 remove_marked_locations_loop_start:
 beq $t1, 4096, remove_marked_locations_loop_end     # the entire bitmap copy has been checked so we can end the loop
 lw $t5, 0($t3)                                      # get the colour at the current address in the bitmap copy
-bne $t5, $t4, check_next_pixel                     # check if the colour at the current address in red
+bne, $t5, $t4, check_next_pixel                     # check if the colour at the current address in red
 sw $t9, 0($t2)                                      # if the pixel is red in the bitmap copy, paint the parallel location in the bitmap black
 sw $t9, 0($t3)                                      # remove the mark in the bitmap copy since the pixel has been erased from the bitmap
 
@@ -933,10 +941,11 @@ addi $sp, $sp, 4                                # move the stack pointer to the 
 jr $ra                                          # return to game loop
 
 ###############################################################################################################
+
 ##  The find_all_diagonal_matches function
 ##  - looks for all diagonal (down-right and down-left) matches of length 3 in the playing grid
 ##  - if a match is found, the 3 cells are marked RED in bitmap_copy
-###############################################################################################################
+
 
 find_all_diagonal_matches:
 
@@ -1046,3 +1055,100 @@ diag_done_rows:
     lw   $ra, 0($sp)                   # restore $ra
     addi $sp, $sp, 4                   # restore stack pointer
     jr   $ra                           # return to the calling code
+    
+###############################################################################################################
+
+## the drop_row function 
+## - drops any gems in a given that are no longer supported 
+#
+# $a0 = the row to be dropped
+
+drop_row:
+
+addi $t0, $zero, 5                              # $t0 stores the x value of the starting column
+add $t1, $t0, $zero                             # $t1 stores a copy of $t0
+lw $t9, BLACK                                   # store the colour black in $t9
+sll $t1, $t1, 2                                 # multiply $t1 by 4 to get the horizontal offset
+add $t2, $s0, $t1                               # add this offset to the base address of the bitmap
+sll $a0, $a0, 7                                 # multiply $a0 by 128 to get the vertical offset
+add $t2, $t2, $a0                               # add this offset to $t2
+
+drop_row_outer_loop_start:                      # this loops through all the gems in the given row
+beq $t0, 11, drop_row_outer_loop_end            # when $t0 reaches 11 we would have dropped all the gems in a row
+lw $t3, 0($t2)                                  # $t3 stores the colour at the bitmap address specified by $t2
+beq $t3, $t9, drop_next_gem                     # if the colour is black then there is no gem to drop in this location
+
+sw $t9, 0($t2)                                  # If there is a gem in this location, erase it from the bitmap 
+add $t4, $zero, $t2                             # store the current address in $t4
+
+    drop_row_inner_loop_start:                  # this loop drops the current gem as far down as it can go
+    addi $t5, $t4, 128                          # store the address directly below the current address in $t5
+    lw $t6, 0($t5)                              # store the colour at this address in $t6
+    bne $t6, $t9, drop_row_inner_loop_end       # if the colour below the gem is not black, the gem cannot drop any further
+    add $t4, $t5, $zero                         # if the colour below the gem is black, it can be dropped so update the current address to the address directly below
+    j drop_row_inner_loop_start
+    
+    drop_row_inner_loop_end:
+    sw $t3, 0($t4)                              # paint the current address the colour of the gem
+
+
+drop_next_gem:
+addi $t0, $t0, 1                                # increment the column we are on
+addi $t2, $t2, 4                                # increment the bitmap address accordingly
+j drop_row_outer_loop_start                     # repeat for next column in row
+
+drop_row_outer_loop_end:
+jr $ra
+
+###############################################################################################################
+
+## the drop_all_rows function 
+## - drops all floating gems
+
+drop_all_rows:
+
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $ra, 0($sp)                                  # push $ra onto the stack
+
+addi $t7, $zero, 26                             # $t7 stores the first row to be dropped (note we drop from the second to last row up)
+
+drop_rows_loop_start:
+beq $t7, 14, drop_rows_loop_end                 # once $t7 reaches 14 we would have dropped all the rows in the playing field
+add $a0, $zero, $t7                             # load the current row into $a0
+jal drop_row                                    # drop the gems in the row specified by $a0
+addi $t7, $t7, -1                               # decrement $t7 by 1
+j drop_rows_loop_start                          # repeat for next row
+
+drop_rows_loop_end:
+lw $ra, 0($sp)                                  # pop $ra from the stack
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+jr $ra
+
+###############################################################################################################
+
+## the check_for_no_matches function 
+## - checks if there are no matches in the playing grid
+
+check_for_no_matches:
+
+add $t0, $zero, $zero                           # store the offset from the starting address in $t0
+add $t1, $s1, $zero                             # load the starting address of the bitmap copy into $t1
+lw $t2, RED                                     # store the colour red in $t2
+
+check_for_no_matches_loop_start:            
+beq $t0, 4096, check_for_no_matches_loop_end    # the entire bitmap copy has been checked so we can end the loop
+lw $t3, 0($t1)                                  # get the colour at the current address in the bitmap copy
+bne $t3, $t2, not_marked                        # check if the colour at that address is red
+li $v0, 0                                       # if the colour is red then we have a marked location which means there is a match
+jr $ra                                          # early return to the calling program
+
+not_marked:                                     # if the colour at the address is not red we need to move on to the next address
+addi $t0, $t0, 4                                # increment the offset so we can track where we are in the bitmap copy
+addi $t1, $t1, 4                                # increment the current address
+j check_for_no_matches_loop_start
+
+check_for_no_matches_loop_end:
+li $v0, 1                                       # "return" a 1 if the entire bitmap copy has been searched and there was no marked locations (no matches)
+jr $ra                                          # return to the calling program
+
+###############################################################################################################
