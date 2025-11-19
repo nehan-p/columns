@@ -1,0 +1,111 @@
+\documentclass{article}
+
+%% Page Margins %%
+\usepackage{geometry}
+\geometry{
+    top = 0.75in,
+    bottom = 0.75in,
+    right = 0.75in,
+    left = 0.75in,
+}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{array}  % <--- added for centered p-columns
+
+\title{Assembly Project: Dr Mario}
+\author{Raphael Ramesar \\ Nehan Punjani}
+
+\begin{document}
+\maketitle
+
+\section{Instruction and Summary}
+
+\begin{enumerate}
+    \item Which milestones were implemented?
+
+    We implemented Milestones 1, 2, and 3.
+
+    \begin{itemize}
+        \item \textbf{Milestone 1:} Basic grid drawing and spawning a random three-high column in the centre of the playing field. Keyboard input is read from the memory–mapped keyboard.
+        \item \textbf{Milestone 2:} Collision detection with the walls and floor, landing logic for the falling column, and spawning the next column after a landing.
+        \item \textbf{Milestone 3:} Detection and deletion of matches of length three or more (horizontal, vertical, and diagonal), gravity to drop unsupported gems after a match, and automatic game over when a column lands at the top row.
+    \end{itemize}
+
+    We did not implement Milestones 4 or 5 for this demo.
+
+    \item How to view the game:
+
+    \begin{enumerate}
+        \item Open the \texttt{.asm} file in MARS.
+        \item Connect the Bitmap Display with:
+        \begin{itemize}
+            \item Unit width: 8 pixels
+            \item Unit height: 8 pixels
+            \item Display width: 256 pixels
+            \item Display height: 256 pixels
+            \item Base address: \texttt{0x10008000}
+        \end{itemize}
+        \item Connect the Keyboard and set the base address to \texttt{0xffff0000}.
+        \item Assemble and run the program with \texttt{main} as the entry point.
+        \item Controls:
+        \begin{itemize}
+            \item \texttt{a} — move column left
+            \item \texttt{s} — move column down
+            \item \texttt{d} — move column right
+            \item \texttt{w} — rotate the three gem colours in the column
+            \item \texttt{q} — quit the game
+        \end{itemize}
+    \end{enumerate}
+
+    \begin{figure}[ht!]
+        \centering
+        \includegraphics[width=0.3\textwidth]{columnsDemo1.png}
+        \caption{Screenshot of the live Columns game.}
+        \label{fig:instructions}
+    \end{figure}
+
+    \item Game Summary:
+
+    \begin{itemize}
+        \item The player controls a falling column of three coloured gems inside a 6\,x\,13 grid. The column can be moved left or right and the order of the three colours can be rotated.
+        \item When the column lands, the program checks for any horizontal, vertical, or diagonal matches of length three or more. All matched gems are removed, unsupported gems fall down due to gravity, and the process repeats until no matches remain. The game ends automatically when a column lands at the top play row.
+    \end{itemize}
+
+\end{enumerate}
+
+\section{Attribution Table}
+
+\begin{center}
+\begin{tabular}{|
+    >{\centering\arraybackslash}p{0.47\textwidth}|
+    >{\centering\arraybackslash}p{0.47\textwidth}|
+}
+\hline
+Raphael Ramesar, 1011069736 & Nehan Punjani, 1010928141 \\
+\hline
+Milestone 1 implementation & Milestone 1 implementation \\
+\hline
+Milestone 2 implementation & Milestone 2 implementation \\
+\hline
+M3 -- Vertical and horizontal match detection and deletion & M3 -- Diagonal down-left and down-right match detection and deletion \\
+\hline
+M3 -- Gravity after match found & M3 -- Auto quit when columns reach the top \\
+\hline
+Testing and debugging & Testing and debugging \\
+\hline
+Documentation and demo preparation & Documentation and demo preparation \\
+\hline
+\end{tabular}
+\end{center}
+
+% TODO: Fill out the remainder of the document as you see 
+% fit, including as much detail as you think 
+% necessary to better understand your code. 
+% You can add extra sections and subsections to 
+% help us understand why you deserve marks for 
+% features that were more challenging than they 
+% might initially seem.
+
+\end{document}
