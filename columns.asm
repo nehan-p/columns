@@ -792,242 +792,6 @@ jr $ra                                      # return to the calling program
 
 ###############################################################################################################
 
-##  The find_diagonal_down_right_match function
-##  - Looks for a diagonal (down-right) match of three or more for a given colour starting from a given cell
-#
-# $a0 = the starting row to check
-# $a1 = the starting column to check
-# $a2 = the colour we are checking for 
-
-find_diagonal_down_right_match:
-
-add $t0, $zero, $zero                       # $t0 is used to store the current number of consecutive gems
-add $t6, $zero, $zero                       # $t6 stores the ending row for a match, if this is changed from zero a match has been found
-add $t1, $zero, $a0                         # $t1 is the loop variable for the row, initialised to the starting row
-add $t2, $zero, $a1                         # $t2 is the loop variable for the column, initialised to the starting column
-
-# we need to convert the row and column to an address in the bitmap
-add $t3, $zero, $t2                         # $t3 holds a copy of the column
-sll $t3, $t3, 2                             # multiply this x-value by 4 to get the horizontal offset
-addu $t3, $s0, $t3                           # add this horizontal offset to $s0 (bitmap address) and store in $t3
-add $t7, $zero, $t1                         # $t7 holds a copy of the row
-sll $t7, $t7, 7                             # multiply the y-value (row) by 128 to get the vertical offset
-addu $t3, $t3, $t7                           # add this vertical offset to $t3
-
-find_diagonal_down_right_match_loop_start:
-bgt $t1, 27, find_diagonal_down_right_match_loop_end   # if the row is > 27 we have left the playing grid
-bgt $t2, 10, find_diagonal_down_right_match_loop_end   # if the column is > 10 we have left the playing grid
-
-lw $t7, 0($t3)                              # get the colour at the address specified by $t3 and store in $t7
-
-bne $t7, $a2, diag_dr_not_colour            # check if the colour at the address is the colour we are looking for
-
-beq $t0, $zero, diag_dr_first_occurrence    # if this is the first time encountering this colour, record the starting cell
-
-j diag_dr_not_first_occurrence              # otherwise, go straight to incrementing the count
-
-diag_dr_first_occurrence:
-add $t4, $zero, $t1                         # store the starting row of the potential match in $t4
-add $t5, $zero, $t2                         # store the starting column of the potential match in $t5
-
-diag_dr_not_first_occurrence:
-addi $t0, $t0, 1                            # increment the count of consecutive gems
-
-j diag_dr_increment_loop_variables          # skip the logic for the case where the colour does not match
-
-diag_dr_not_colour:
-blt $t0, 3, diag_dr_no_match_yet            # if the count is less than 3 then we do not have a match
-add $t6, $zero, $t1                         # store the row one past the last match in $t6
-addi $t6, $t6, -1                           # subtract 1 to get the row of the last gem in the match
-j find_diagonal_down_right_match_loop_end   # a match has been found so we can end the loop
-
-diag_dr_no_match_yet:
-add $t0, $zero, $zero                       # reset the count to 0 if we did not find a match
-
-diag_dr_increment_loop_variables:
-addi $t1, $t1, 1                            # increment the row to move down one cell
-addi $t2, $t2, 1                            # increment the column to move right one cell
-addi $t3, $t3, 132                          # increment the address by 132 bytes (128 for row, 4 for column)
-j find_diagonal_down_right_match_loop_start # repeat the process on the next cell
-
-find_diagonal_down_right_match_loop_end:
-
-# Note that the loop could have finished on a match, so we need to check for this
-
-blt $t0, 3, diag_dr_no_ending_match         # if the number of consecutive gems ($t0) < 3, then there is no match
-add $t6, $zero, $t1                         # store the row one past the last match in $t6
-addi $t6, $t6, -1                           # subtract 1 to get the row of the last gem in the match
-
-diag_dr_no_ending_match:
-
-beq $t6, $zero, find_diagonal_down_right_match_end     # if $t6 is still zero, no match was found so we can return
-
-addi $sp, $sp, -4                           # move the stack pointer to an empty location
-sw $ra, 0($sp)                              # push $ra onto the stack
-
-add $a0, $zero, $t4                         # load the starting row of the match into $a0
-add $a1, $zero, $t5                         # load the starting column of the match into $a1
-add $a2, $zero, $t6                         # load the ending row of the match into $a2
-jal diagonal_down_right_mark_for_removal    # mark this match for removal in the bitmap copy
-
-lw $ra, 0($sp)                              # pop $ra from the stack
-addi $sp, $sp, 4                            # move the stack pointer to the top stack element
-
-find_diagonal_down_right_match_end:
-jr $ra                                      # return to the calling program
-
-###############################################################################################################
-
-##  The diagonal_down_right_mark_for_removal function
-##  - Given a down-right diagonal match, mark the locations in the bitmap copy
-#
-# $a0 = the starting row of the match
-# $a1 = the starting column of the match
-# $a2 = the ending row of the match
-
-diagonal_down_right_mark_for_removal:
-
-add $t1, $zero, $a0                         # store a copy of the starting row in $t1
-sll $t1, $t1, 7                             # multiply this by 128 to get the vertical offset
-add $t2, $s1, $t1                           # add this vertical offset to $s1 (bitmap copy address) and store in $t2
-sll $t3, $a1, 2                             # multiply the starting column by 4 to get the horizontal offset
-add $t2, $t2, $t3                           # add this horizontal offset to $t2
-lw  $t4, RED                                # load the colour red into $t4, this will be used to mark the locations
-
-sub $t5, $a2, $a0                           # subtract the starting row from the ending row to get the difference
-addi $t5, $t5, 1                            # add 1 so $t5 stores the number of gems in the match
-
-diagonal_down_right_mark_loop_start:
-beq $t5, $zero, diagonal_down_right_mark_loop_end   # when $t5 reaches 0 we have marked all the gems in the match
-sw $t4, 0($t2)                              # mark the address in the bitmap copy
-addi $t2, $t2, 132                          # move the address one cell down-right (128 for row, 4 for column)
-addi $t5, $t5, -1                           # decrement the loop counter
-j diagonal_down_right_mark_loop_start
-
-diagonal_down_right_mark_loop_end:
-jr $ra                                      # return to the calling program
-
-###############################################################################################################
-
-##  The find_diagonal_down_left_match function
-##  - Looks for a diagonal (down-left) match of three or more for a given colour starting from a given cell
-#
-# $a0 = the starting row to check
-# $a1 = the starting column to check
-# $a2 = the colour we are checking for 
-
-find_diagonal_down_left_match:
-
-add $t0, $zero, $zero                       # $t0 is used to store the current number of consecutive gems
-add $t6, $zero, $zero                       # $t6 stores the ending row for a match, if this is changed from zero a match has been found
-add $t1, $zero, $a0                         # $t1 is the loop variable for the row, initialised to the starting row
-add $t2, $zero, $a1                         # $t2 is the loop variable for the column, initialised to the starting column
-
-# we need to convert the row and column to an address in the bitmap
-add $t3, $zero, $t2                         # $t3 holds a copy of the column
-sll $t3, $t3, 2                             # multiply this x-value by 4 to get the horizontal offset
-addu $t3, $s0, $t3                           # add this horizontal offset to $s0 (bitmap address) and store in $t3
-add $t7, $zero, $t1                         # $t7 holds a copy of the row
-sll $t7, $t7, 7                             # multiply the y-value (row) by 128 to get the vertical offset
-addu $t3, $t3, $t7                           # add this vertical offset to $t3
-
-find_diagonal_down_left_match_loop_start:
-bgt $t1, 27, find_diagonal_down_left_match_loop_end   # if the row is > 27 we have left the playing grid
-blt $t2, 5, find_diagonal_down_left_match_loop_end    # if the column is < 5 we have left the playing grid
-
-lw $t7, 0($t3)                              # get the colour at the address specified by $t3 and store in $t7
-
-bne $t7, $a2, diag_dl_not_colour            # check if the colour at the address is the colour we are looking for
-
-beq $t0, $zero, diag_dl_first_occurrence    # if this is the first time encountering this colour, record the starting cell
-
-j diag_dl_not_first_occurrence              # otherwise, go straight to incrementing the count
-
-diag_dl_first_occurrence:
-add $t4, $zero, $t1                         # store the starting row of the potential match in $t4
-add $t5, $zero, $t2                         # store the starting column of the potential match in $t5
-
-diag_dl_not_first_occurrence:
-addi $t0, $t0, 1                            # increment the count of consecutive gems
-
-j diag_dl_increment_loop_variables          # skip the logic for the case where the colour does not match
-
-diag_dl_not_colour:
-blt $t0, 3, diag_dl_no_match_yet            # if the count is less than 3 then we do not have a match
-add $t6, $zero, $t1                         # store the row one past the last match in $t6
-addi $t6, $t6, -1                           # subtract 1 to get the row of the last gem in the match
-j find_diagonal_down_left_match_loop_end    # a match has been found so we can end the loop
-
-diag_dl_no_match_yet:
-add $t0, $zero, $zero                       # reset the count to 0 if we did not find a match
-
-diag_dl_increment_loop_variables:
-addi $t1, $t1, 1                            # increment the row to move down one cell
-addi $t2, $t2, -1                           # decrement the column to move left one cell
-addi $t3, $t3, 124                          # increment the address by 124 bytes (128 for row, -4 for column)
-j find_diagonal_down_left_match_loop_start  # repeat the process on the next cell
-
-find_diagonal_down_left_match_loop_end:
-
-# Note that the loop could have finished on a match, so we need to check for this
-
-blt $t0, 3, diag_dl_no_ending_match         # if the number of consecutive gems ($t0) < 3, then there is no match
-add $t6, $zero, $t1                         # store the row one past the last match in $t6
-addi $t6, $t6, -1                           # subtract 1 to get the row of the last gem in the match
-
-diag_dl_no_ending_match:
-
-beq $t6, $zero, find_diagonal_down_left_match_end      # if $t6 is still zero, no match was found so we can return
-
-addi $sp, $sp, -4                           # move the stack pointer to an empty location
-sw $ra, 0($sp)                              # push $ra onto the stack
-
-add $a0, $zero, $t4                         # load the starting row of the match into $a0
-add $a1, $zero, $t5                         # load the starting column of the match into $a1
-add $a2, $zero, $t6                         # load the ending row of the match into $a2
-jal diagonal_down_left_mark_for_removal     # mark this match for removal in the bitmap copy
-
-lw $ra, 0($sp)                              # pop $ra from the stack
-addi $sp, $sp, 4                            # move the stack pointer to the top stack element
-
-find_diagonal_down_left_match_end:
-jr $ra                                      # return to the calling program
-
-###############################################################################################################
-
-##  The diagonal_down_left_mark_for_removal function
-##  - Given a down-left diagonal match, mark the locations in the bitmap copy
-#
-# $a0 = the starting row of the match
-# $a1 = the starting column of the match
-# $a2 = the ending row of the match
-
-diagonal_down_left_mark_for_removal:
-
-add $t1, $zero, $a0                         # store a copy of the starting row in $t1
-sll $t1, $t1, 7                             # multiply this by 128 to get the vertical offset
-add $t2, $s1, $t1                           # add this vertical offset to $s1 (bitmap copy address) and store in $t2
-sll $t3, $a1, 2                             # multiply the starting column by 4 to get the horizontal offset
-add $t2, $t2, $t3                           # add this horizontal offset to $t2
-lw  $t4, RED                                # load the colour red into $t4, this will be used to mark the locations
-
-sub $t5, $a2, $a0                           # subtract the starting row from the ending row to get the difference
-addi $t5, $t5, 1                            # add 1 so $t5 stores the number of gems in the match
-
-diagonal_down_left_mark_loop_start:
-beq $t5, $zero, diagonal_down_left_mark_loop_end   # when $t5 reaches 0 we have marked all the gems in the match
-sw $t4, 0($t2)                              # mark the address in the bitmap copy
-addi $t2, $t2, 124                          # move the address one cell down-left (128 for row, -4 for column)
-addi $t5, $t5, -1                           # decrement the loop counter
-j diagonal_down_left_mark_loop_start
-
-diagonal_down_left_mark_loop_end:
-jr $ra                                      # return to the calling program
-
-
-
-###############################################################################################################
-
 ## The remove_marked_locations function 
 ## - goes through the bitmap copy and removes all the marked locations from the actual bitmap
 
@@ -1042,7 +806,7 @@ lw $t9, BLACK                                       # load the colour black into
 remove_marked_locations_loop_start:
 beq $t1, 4096, remove_marked_locations_loop_end     # the entire bitmap copy has been checked so we can end the loop
 lw $t5, 0($t3)                                      # get the colour at the current address in the bitmap copy
-bne, $t5, $t4, check_next_pixel                     # check if the colour at the current address in red
+bne $t5, $t4, check_next_pixel                     # check if the colour at the current address in red
 sw $t9, 0($t2)                                      # if the pixel is red in the bitmap copy, paint the parallel location in the bitmap black
 sw $t9, 0($t3)                                      # remove the mark in the bitmap copy since the pixel has been erased from the bitmap
 
@@ -1169,117 +933,116 @@ addi $sp, $sp, 4                                # move the stack pointer to the 
 jr $ra                                          # return to game loop
 
 ###############################################################################################################
-
 ##  The find_all_diagonal_matches function
-##  - looks for all the diagonal (down-right and down-left) matches of three or more in the playing grid
+##  - looks for all diagonal (down-right and down-left) matches of length 3 in the playing grid
+##  - if a match is found, the 3 cells are marked RED in bitmap_copy
+###############################################################################################################
 
 find_all_diagonal_matches:
-addi $sp, $sp, -4                               # move the stack pointer to an empty location
-sw $ra, 0($sp)                                  # push $ra onto the stack
 
-add $t1, $zero, $zero                           # $t1 stores the offset from the starting address of the colour array
+    addi $sp, $sp, -4                  # push $ra onto the stack
+    sw   $ra, 0($sp)
 
-diagonal_loop_colours_start:
-beq $t1, 24, diagonal_loop_colours_end          # when the offset reaches 24 we have checked all the colours
-add $t0, $s2, $t1                               # add the offset to the starting address
-lw $t2, 0($t0)                                  # load the colour at this address into $t2
+    lw   $t8, RED                      # $t8 = RED (marker colour in bitmap_copy)
+    lw   $t9, BLACK                    # $t9 = BLACK (empty cell colour)
 
-addi $sp, $sp, -4                               # move the stack pointer to an empty location
-sw $t1, 0($sp)                                  # push $t1 onto the stack
+    addi $t0, $zero, 15                # $t0 = current row, start at first play row (15)
 
-###############################################
-# check all down-right diagonals for this colour
-###############################################
-addi $t3, $zero, 15                             # the first row to check is row 15
+diag_row_loop:
+    bgt  $t0, 25, diag_done_rows       # stop at row 25 (need room for row+2)
 
-diagonal_dr_rows_start:
-beq $t3, 26, diagonal_dr_rows_end               # when $t3 reaches 26, we would have looped through rows 15..25
-addi $t4, $zero, 5                              # the first column to check is column 5
+    addi $t1, $zero, 5                 # $t1 = current column, start at first play column (5)
 
-addi $sp, $sp, -4                               # move the stack pointer to an empty location
-sw $t3, 0($sp)                                  # push $t3 onto the stack
+diag_col_loop:
+    bgt  $t1, 10, diag_next_row        # stop at column 10
 
-    diagonal_dr_cols_start:
-    beq $t4, 9, diagonal_dr_cols_end            # when $t4 reaches 9, we would have looped through columns 5..8
-    add $a0, $zero, $t3                         # load the row into $a0
-    add $a1, $zero, $t4                         # load the column into $a1
-    add $a2, $zero, $t2                         # load the colour into $a2
+    # Compute address of the current cell (row = $t0, col = $t1)
+    # addr = s0 + (col * 4) + (row * 128)
+
+    add  $t2, $zero, $t1               # $t2 = col
+    sll  $t2, $t2, 2                   # col * 4
+    addu $t3, $s0,  $t2                # $t3 = base + col*4
+
+    add  $t4, $zero, $t0               # $t4 = row
+    sll  $t4, $t4, 7                   # row * 128
+    addu $t3, $t3,  $t4                # $t3 = address of (row, col)
+
+    lw   $t5, 0($t3)                   # $t5 = colour at (row, col)
+    beq  $t5, $t9, diag_skip_cell      # if current cell is BLACK, no gem to match
+
+    # Check down-right diagonal: (row,col), (row+1,col+1), (row+2,col+2)
+    # Only valid if col <= 8 and row <= 25
+    # Each step down-right is +132 bytes (+128 row, +4 col)
+
+    bgt  $t1, 8, diag_skip_down_right  # if col > 8, cannot fit 3 down-right
+    bgt  $t0, 25, diag_skip_down_right # if row > 25, cannot fit 3 down-right
+
+    addi $t6, $t3, 132                 # address of (row+1, col+1)
+    lw   $t7, 0($t6)
+    bne  $t7, $t5, diag_skip_down_right
+
+    addi $t6, $t6, 132                 # address of (row+2, col+2)
+    lw   $t7, 0($t6)
+    bne  $t7, $t5, diag_skip_down_right
+
+    # We have 3 matching gems down-right -> mark them in bitmap_copy
+
+    # mark (row, col)
+    subu $t7, $t3, $s0                 # offset = addr - base_display
+    addu $t7, $s1, $t7                 # $t7 = corresponding address in bitmap_copy
+    sw   $t8, 0($t7)
+
+    # mark (row+1, col+1)
+    addi $t7, $t7, 132                 # same +132 stride in bitmap_copy
+    sw   $t8, 0($t7)
+
+    # mark (row+2, col+2)
+    addi $t7, $t7, 132
+    sw   $t8, 0($t7)
+
+diag_skip_down_right:
+
+    # Check down-left diagonal: (row,col), (row+1,col-1), (row+2,col-2)
+    # Only valid if col >= 7 and row <= 25
+    # Each step down-left is +124 bytes (+128 row, -4 col)
     
-    addi $sp, $sp, -8                           # move the stack pointer to empty locations
-    sw $t4, 0($sp)                              # push $t4 onto the stack
-    sw $t2, 4($sp)                              # push $t2 onto the stack
-    
-    jal find_diagonal_down_right_match          # look for a down-right diagonal match from this cell
-    
-    lw $t2, 4($sp)                              # pop $t2 from the stack
-    lw $t4, 0($sp)                              # pop $t4 from the stack
-    addi $sp, $sp, 8                            # move the stack pointer to the top stack element
-    
-    addi $t4, $t4, 1                            # increment the column by 1
-    j diagonal_dr_cols_start                    # repeat for the next column
-    
-    diagonal_dr_cols_end:
+    blt  $t1, 7, diag_skip_down_left   # if col < 7, cannot fit 3 down-left
+    bgt  $t0, 25, diag_skip_down_left  # if row > 25, cannot fit 3 down-left
 
-lw $t3, 0($sp)                                  # pop $t3 from the stack
-addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+    addi $t6, $t3, 124                 # address of (row+1, col-1)
+    lw   $t7, 0($t6)
+    bne  $t7, $t5, diag_skip_down_left
 
-addi $t3, $t3, 1                                # increment the row by 1
-j diagonal_dr_rows_start                        # repeat for the next row
+    addi $t6, $t6, 124                 # address of (row+2, col-2)
+    lw   $t7, 0($t6)
+    bne  $t7, $t5, diag_skip_down_left
 
-diagonal_dr_rows_end:
+    # We have 3 matching gems down-left -> mark them in bitmap_copy
 
-###############################################
-# check all down-left diagonals for this colour
-###############################################
-addi $t3, $zero, 15                             # the first row to check is row 15
+    # mark (row, col)
+    subu $t7, $t3, $s0                 # offset = addr - base_display
+    addu $t7, $s1, $t7                 # $t7 = corresponding address in bitmap_copy
+    sw   $t8, 0($t7)
 
-diagonal_dl_rows_start:
-beq $t3, 26, diagonal_dl_rows_end               # when $t3 reaches 26, we would have looped through rows 15..25
-addi $t4, $zero, 7                              # the first column to check is column 7
+    # mark (row+1, col-1)
+    addi $t7, $t7, 124                 # +128 row, -4 col in copy
+    sw   $t8, 0($t7)
 
-addi $sp, $sp, -4                               # move the stack pointer to an empty location
-sw $t3, 0($sp)                                  # push $t3 onto the stack
+    # mark (row+2, col-2)
+    addi $t7, $t7, 124
+    sw   $t8, 0($t7)
 
-    diagonal_dl_cols_start:
-    beq $t4, 11, diagonal_dl_cols_end           # when $t4 reaches 11, we would have looped through columns 7..10
-    add $a0, $zero, $t3                         # load the row into $a0
-    add $a1, $zero, $t4                         # load the column into $a1
-    add $a2, $zero, $t2                         # load the colour into $a2
-    
-    addi $sp, $sp, -8                           # move the stack pointer to empty locations
-    sw $t4, 0($sp)                              # push $t4 onto the stack
-    sw $t2, 4($sp)                              # push $t2 onto the stack
-    
-    jal find_diagonal_down_left_match           # look for a down-left diagonal match from this cell
-    
-    lw $t2, 4($sp)                              # pop $t2 from the stack
-    lw $t4, 0($sp)                              # pop $t4 from the stack
-    addi $sp, $sp, 8                            # move the stack pointer to the top stack element
-    
-    addi $t4, $t4, 1                            # increment the column by 1
-    j diagonal_dl_cols_start                    # repeat for the next column
-    
-    diagonal_dl_cols_end:
+diag_skip_down_left:
 
-lw $t3, 0($sp)                                  # pop $t3 from the stack
-addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+diag_skip_cell:
+    addi $t1, $t1, 1                   # move to next column
+    j    diag_col_loop
 
-addi $t3, $t3, 1                                # increment the row by 1
-j diagonal_dl_rows_start                        # repeat for the next row
+diag_next_row:
+    addi $t0, $t0, 1                   # move to next row
+    j    diag_row_loop
 
-diagonal_dl_rows_end:
-
-lw $t1, 0($sp)                                  # pop $t1 from the stack
-addi $sp, $sp, 4                                # move the stack pointer to the top stack element
-
-addi $t1, $t1, 4                                # move on to the next colour
-j diagonal_loop_colours_start
-
-diagonal_loop_colours_end:
-
-lw $ra, 0($sp)                                  # pop $ra from the stack
-addi $sp, $sp, 4                                # move the stack pointer to the top stack element
-
-jr $ra                                          # return to game loop
-
-###############################################################################################################
+diag_done_rows:
+    lw   $ra, 0($sp)                   # restore $ra
+    addi $sp, $sp, 4                   # restore stack pointer
+    jr   $ra                           # return to the calling code
