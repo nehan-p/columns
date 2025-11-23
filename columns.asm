@@ -35,6 +35,8 @@ YELLOW: .word 0xffff00
 PURPLE: .word 0x6f2da8
 GREY: .word 0x808080
 BLACK: .word 0x000000
+WHITE:  .word 0xffffff
+
 
 # An array of the gem colours
 GEM_COLOURS:
@@ -61,7 +63,22 @@ can_move_left: .word 0x0 # keeps track of whether the current column can move le
 can_move_right: .word 0x0 # keeps track of whether the current column can move right
 has_landed: .word 0x0 # keeps track of whether the current column has either reached the floor or landed on a past column
 
-bitmap_copy: .space 4096 # stores a mirror of the bitmap in memory which is used to mark which gems are to be deleted
+gravity_counter: .word 0          # counts ticks until next automatic drop
+
+gravity_speed:        .word 60     # current number of ticks between drops
+gravity_min_speed:    .word 15     # fastest allowed speed (smaller = faster)
+gravity_level_timer:  .word 0      # counts ticks until we speed up gravity
+
+# Gravity difficulty settings (ticks between automatic drops)
+EASY_TICKS:      .word 80     # slowest
+MEDIUM_TICKS:    .word 60     # normal
+HARD_TICKS:      .word 40     # fastest
+
+# Prompt string for console
+DIFF_PROMPT: .asciiz "Select difficulty: 1 = Easy, 2 = Medium, 3 = Hard\n"
+
+    .align 2                 # ensure next label is word-aligned (2^2 = 4 bytes)
+bitmap_copy: .space 4096     # stores a mirror of the bitmap in memory
 
 ##############################################################################
 # Code
@@ -76,6 +93,21 @@ main:
 lw $s0, ADDR_DSPL # save the starting address of the bitmap since we will be referencing it a lot
 la $s1, bitmap_copy # similarly, save the starting address of the bitmap copy 
 la $s2, GEM_COLOURS # save the starting address of the array storing the gem colours
+
+# clear the display and the bitmap_copy so restart is clean
+jal clear_bitmap
+jal clear_bitmap_copy
+
+# reset state flags / counters
+sw $zero, can_move_left
+sw $zero, can_move_right
+sw $zero, has_landed
+sw $zero, gravity_counter
+sw $zero, gravity_level_timer
+# gravity_speed will be overwritten by choose_difficulty anyway, so we don't strictly need to set it here
+
+# let the player choose difficulty
+    jal choose_difficulty
 
 ## Draw the Grid ##
 jal draw_grid                   
@@ -137,20 +169,21 @@ match_checking_loop_end:
 jal initialize_player_column        # Initialize a new column 
 jal draw_current_column             # Draw this new column to the screen
 
-# 3. Draw the screen
 skip_landing_logic:
 
+    # Gradually speed up gravity over time (Easy Feature 2)
+    jal update_gravity_speed
 
+    # Apply gravity automatically each tick (Easy Feature 1)
+    jal apply_gravity
 
-# 4. Sleep
-li $v0, 32
-li $a0, 17
-syscall
-	
+    # Sleep
+    li $v0, 32
+    li $a0, 17
+    syscall
 
-# 5. Go back to Step 1
-j game_loop
-
+    # Go back to Step 1
+    j game_loop
 
 ##############################################################################
 # The Helper Functions
@@ -403,11 +436,115 @@ li $v0, 10                          # Quit gracefully
 syscall
 
 ###############################################################################################################
+## game_over logic
+## - draws game over screen
+## - waits for player to press 'r'
+## - restarts game
 
 game_over:
-    li $v0, 10      # exit program
-    syscall
+    # Just jump into the drawing routine. We never return to the game,
+    # so no need to preserve $ra here.
+    j   draw_game_over_screen
+
+
+wait_for_retry:
+
+    # Use the memory-mapped keyboard just like in the main loop
+    lw  $t0, ADDR_KBRD          # base address of keyboard
+
+wait_for_key:
+    lw  $t1, 0($t0)             # 1 if a key is pressed, 0 otherwise
+    beq $t1, $zero, wait_for_key
+
+    lw  $t2, 4($t0)             # ASCII code of pressed key
+
+    li  $t3, 0x72               # 'r'
+    beq $t2, $t3, restart_game  # if 'r', restart
+
+    # If it wasn't 'r', wait for the next key
+    j   wait_for_key
+
+restart_game:
+    j   main                    # start a brand new game (will re-ask difficulty)
+
     
+## move_column_down
+## - moves the current column down by 1 row if it hasn't landed
+
+move_column_down:
+
+    # Save caller's return address
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    lw  $t3, has_landed                # if column has already landed, do nothing
+    beq $t3, 1, move_column_down_done_body
+
+    jal erase_current_column           # erase old position
+
+    la  $t1, current_column
+    lw  $t2, 4($t1)                    # y position
+    addi $t2, $t2, 1                   # y + 1
+    sw  $t2, 4($t1)                    # store new y
+
+    jal draw_current_column            # draw in new position
+
+move_column_down_done_body:
+    # Restore caller's $ra and return
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+
+###############################################################################################################
+## choose_difficulty
+## - asks the player to pick 1 (Easy), 2 (Medium) or 3 (Hard)
+## - sets gravity_speed based on the choice
+
+choose_difficulty:
+
+diff_input_loop:
+    # print the difficulty prompt message
+    li  $v0, 4
+    la  $a0, DIFF_PROMPT
+    syscall
+
+    # read a single character from user
+    li  $v0, 12
+    syscall
+    move $t0, $v0                      # store the typed character
+
+    # check if user typed '1'
+    li  $t1, '1'
+    beq $t0, $t1, diff_set_easy
+
+    # check if user typed '2'
+    li  $t1, '2'
+    beq $t0, $t1, diff_set_medium
+
+    # check if user typed '3'
+    li  $t1, '3'
+    beq $t0, $t1, diff_set_hard
+
+    # invalid input -> ask again
+    j diff_input_loop
+
+
+diff_set_easy:
+    lw $t2, EASY_TICKS
+    sw $t2, gravity_speed               # set gravity_speed to slowest
+    jr $ra
+
+diff_set_medium:
+    lw $t2, MEDIUM_TICKS
+    sw $t2, gravity_speed               # set gravity_speed to medium
+    jr $ra
+
+diff_set_hard:
+    lw $t2, HARD_TICKS
+    sw $t2, gravity_speed               # set gravity_speed to fastest
+    jr $ra
+
 ###############################################################################################################
 
 ## The code executed when the "w" key is pressed
@@ -450,22 +587,13 @@ jal draw_current_column                     # Draw the column in its updated loc
 j keyboard_input_processed                  # return to game loop
 
 ###############################################################################################################
-
 ## The code executed when the "s" key is pressed
 ## - move the column down
 
 respond_to_S:
-lw $t3 has_landed                           # $t3 either holds a 1 or 0 which checks if the column has reached the floor or landed on a past column
-beq $t3, 1, keyboard_input_processed        # if $t3 == 1, column has reached the floor or landed on a past column so return to game loop
+    jal move_column_down
+    j   keyboard_input_processed       # back to main loop
 
-jal erase_current_column                    # erase the column from the bitmap since it is going to be moved
-la $t1, current_column                      # $t1 holds the address of the column struct
-lw $t2, 4($t1)                              # $t2 holds the y position of the column
-addi $t2, $t2 1                             # increment the y position by 1 (move down)
-sw $t2, 4($t1)                              # update the y position of the column
-
-jal draw_current_column                     # Draw the column in its updated location to the bitmap
-j keyboard_input_processed                  # return to game loop
 
 ###############################################################################################################
 
@@ -485,6 +613,81 @@ sw $t2, 0($t1)                              # update the x position of the colum
 
 jal draw_current_column                     # Draw the column in its updated location to the bitmap
 j keyboard_input_processed                  # return to game loop
+
+
+###############################################################################################################
+## apply_gravity
+## - called every tick from game_loop
+## - after enough ticks, automatically moves the column down
+
+apply_gravity:
+
+    # Save return address (game_loop)
+    addi $sp, $sp, -4
+    sw   $ra, 0($sp)
+
+    # If the column has landed, just reset the counter and leave
+    lw  $t0, has_landed
+    bne $t0, $zero, gravity_reset      # if has_landed != 0, skip dropping
+
+    # Not landed: increment the counter
+    lw  $t1, gravity_counter
+    addi $t1, $t1, 1
+    sw  $t1, gravity_counter
+
+    # load the current gravity speed (difficulty changes this value)
+    lw  $t2, gravity_speed              
+    blt $t1, $t2, gravity_return        # if counter < gravity_speed, do not drop yet
+
+    # Time to drop down one row
+    sw  $zero, gravity_counter         # reset counter
+    jal move_column_down               # reuse the same movement logic
+    j   gravity_return
+
+gravity_reset:
+    sw  $zero, gravity_counter         # landed -> keep counter at 0
+
+gravity_return:
+    # Restore caller's return address and go back to game_loop
+    lw   $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr   $ra
+
+###############################################################################################################
+## update_gravity_speed
+## - called once per game loop
+## - every so often, decreases gravity_speed down to gravity_min_speed
+
+update_gravity_speed:
+
+    # Increase "time since last speed-up"
+    lw  $t0, gravity_level_timer
+    addi $t0, $t0, 1
+    sw  $t0, gravity_level_timer
+
+    # Check if it's time to speed up (e.g., every 600 frames)
+    # 600 * 17 ms ≈ 10 seconds of real time
+    li  $t1, 600
+    blt $t0, $t1, ugs_return        # if timer < 600, nothing to do yet
+
+    # Time to speed up gravity
+    sw  $zero, gravity_level_timer  # reset timer
+
+    # Load current speed and min speed
+    lw  $t2, gravity_speed
+    lw  $t3, gravity_min_speed
+
+    # Decrease gravity_speed by 5 (faster), but don't go below min
+    addi $t2, $t2, -10
+    bge  $t2, $t3, ugs_store        # if new speed >= min, keep it
+    add  $t2, $zero, $t3            # else clamp to min
+
+ugs_store:
+    sw  $t2, gravity_speed
+
+ugs_return:
+    jr  $ra
+
 
 ###############################################################################################################
 
@@ -1152,3 +1355,294 @@ li $v0, 1                                       # "return" a 1 if the entire bit
 jr $ra                                          # return to the calling program
 
 ###############################################################################################################
+## clear_bitmap
+## - fills the whole display with BLACK
+
+clear_bitmap:
+    lw  $t0, ADDR_DSPL      # base address of display
+    lw  $t1, BLACK          # colour black
+    li  $t2, 1024           # 4096 bytes / 4 = 1024 words
+
+clear_bitmap_loop:
+    sw  $t1, 0($t0)
+    addi $t0, $t0, 4
+    addi $t2, $t2, -1
+    bgtz $t2, clear_bitmap_loop
+    jr  $ra
+
+
+###############################################################################################################
+## clear_bitmap_copy
+## - fills the mirror bitmap_copy with BLACK as well
+
+clear_bitmap_copy:
+    la  $t0, bitmap_copy    # base address of bitmap_copy
+    lw  $t1, BLACK
+    li  $t2, 1024
+
+clear_copy_loop:
+    sw  $t1, 0($t0)
+    addi $t0, $t0, 4
+    addi $t2, $t2, -1
+    bgtz $t2, clear_copy_loop
+    jr  $ra
+
+
+###############################################################################################################
+## draw_game_over_screen
+## - clears display
+## - draws "OVER" in orange and "RESTART" (R in red, rest in white)
+## - then waits for user to press 'r'
+###############################################################################################################
+
+draw_game_over_screen:
+
+    # clear screen to black
+    jal clear_bitmap
+
+    # base address for draw_line / draw_rect
+    lw  $t0, ADDR_DSPL
+
+    ########################
+    # "OVER" in orange
+    ########################
+    lw  $t1, ORANGE
+
+    # O
+    li $a0, 7      # top
+    li $a1, 11
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 7      # bottom
+    li $a1, 15
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 7      # left
+    li $a1, 12
+    li $a2, 1
+    li $a3, 3
+    jal draw_rect
+    li $a0, 9      # right
+    li $a1, 12
+    li $a2, 1
+    li $a3, 3
+    jal draw_rect
+
+    # V
+    li $a0, 11     # left stroke
+    li $a1, 11
+    li $a2, 1
+    li $a3, 4
+    jal draw_rect
+    li $a0, 13     # right stroke
+    li $a1, 11
+    li $a2, 1
+    li $a3, 4
+    jal draw_rect
+    li $a0, 11     # bottom
+    li $a1, 15
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+
+    # E
+    li $a0, 15     # spine
+    li $a1, 11
+    li $a2, 1
+    li $a3, 5
+    jal draw_rect
+    li $a0, 15     # top bar
+    li $a1, 11
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 15     # middle bar
+    li $a1, 13
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 15     # bottom bar
+    li $a1, 15
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+
+    # R
+    li $a0, 19     # spine
+    li $a1, 11
+    li $a2, 1
+    li $a3, 5
+    jal draw_rect
+    li $a0, 19     # top bar
+    li $a1, 11
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 19     # middle bar
+    li $a1, 13
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 21     # right of loop
+    li $a1, 12
+    li $a2, 1
+    li $a3, 2
+    jal draw_rect
+    li $a0, 20     # diagonal leg (2x2)
+    li $a1, 14
+    li $a2, 2
+    li $a3, 2
+    jal draw_rect
+
+        ########################
+    # "RESTART" below
+    ########################
+
+    # first R in red
+    lw  $t1, RED
+
+    li $a0, 4      # spine
+    li $a1, 17
+    li $a2, 1
+    li $a3, 4
+    jal draw_rect
+    li $a0, 4      # top bar
+    li $a1, 17
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 4      # middle bar
+    li $a1, 18
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 5      # right of loop
+    li $a1, 18
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+
+    # "ESTART" in white
+    lw  $t1, WHITE
+
+    # E
+    li $a0, 7      # spine
+    li $a1, 17
+    li $a2, 1
+    li $a3, 4
+    jal draw_rect
+    li $a0, 7      # top
+    li $a1, 17
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 7      # mid
+    li $a1, 18
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 7      # bottom
+    li $a1, 20
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+
+    # S
+    li $a0, 10     # top
+    li $a1, 17
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 10     # upper left
+    li $a1, 18
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+    li $a0, 10     # middle
+    li $a1, 19
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 11     # lower right
+    li $a1, 20
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+    li $a0, 10     # bottom
+    li $a1, 20
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+
+    # T
+    li $a0, 13     # top bar
+    li $a1, 17
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 14     # stem
+    li $a1, 18
+    li $a2, 1
+    li $a3, 3
+    jal draw_rect
+
+    # A
+    li $a0, 17     # left
+    li $a1, 18
+    li $a2, 1
+    li $a3, 3
+    jal draw_rect
+    li $a0, 19     # right
+    li $a1, 18
+    li $a2, 1
+    li $a3, 3
+    jal draw_rect
+    li $a0, 17     # middle bar
+    li $a1, 18
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 18     # peak
+    li $a1, 17
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+
+    # R
+    li $a0, 21     # spine
+    li $a1, 17
+    li $a2, 1
+    li $a3, 4
+    jal draw_rect
+    li $a0, 21     # top bar
+    li $a1, 17
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 21     # mid bar
+    li $a1, 18
+    li $a2, 2
+    li $a3, 1
+    jal draw_rect
+    li $a0, 22     # right of loop
+    li $a1, 18
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+
+    # final T
+    li $a0, 25     # top bar
+    li $a1, 17
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    li $a0, 26     # stem
+    li $a1, 18
+    li $a2, 1
+    li $a3, 3
+    jal draw_rect
+
+    # finished drawing, now wait for 'r'
+    j   wait_for_retry
