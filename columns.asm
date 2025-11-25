@@ -1391,7 +1391,8 @@ clear_copy_loop:
 ###############################################################################################################
 ## draw_game_over_screen
 ## - clears display
-## - draws "OVER" in orange and "RESTART" (R in red, rest in white)
+## - draws big, clearly spaced "OVER" in orange
+## - draws big, clearly spaced "RESTART" (first R red, rest white)
 ## - then waits for user to press 'r'
 ###############################################################################################################
 
@@ -1402,246 +1403,317 @@ draw_game_over_screen:
 
     # base address for draw_line / draw_rect
     lw  $t0, ADDR_DSPL
-
-    ########################
-    # "OVER" in orange
-    ########################
+    
+    # "OVER" in ORANGE 
     lw  $t1, ORANGE
 
-    # O
-    li $a0, 7      # top
-    li $a1, 11
-    li $a2, 3
+    #### O at x = 6..9, y = 6..10 ####
+    # top
+    li $a0, 6
+    li $a1, 6
+    li $a2, 4
     li $a3, 1
     jal draw_rect
-    li $a0, 7      # bottom
-    li $a1, 15
-    li $a2, 3
+    # bottom
+    li $a0, 6
+    li $a1, 10
+    li $a2, 4
     li $a3, 1
     jal draw_rect
-    li $a0, 7      # left
-    li $a1, 12
+    # left side
+    li $a0, 6
+    li $a1, 7
     li $a2, 1
     li $a3, 3
     jal draw_rect
-    li $a0, 9      # right
-    li $a1, 12
+    # right side
+    li $a0, 9
+    li $a1, 7
     li $a2, 1
     li $a3, 3
     jal draw_rect
 
-    # V
-    li $a0, 11     # left stroke
-    li $a1, 11
-    li $a2, 1
-    li $a3, 4
-    jal draw_rect
-    li $a0, 13     # right stroke
-    li $a1, 11
-    li $a2, 1
-    li $a3, 4
-    jal draw_rect
-    li $a0, 11     # bottom
-    li $a1, 15
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-
-    # E
-    li $a0, 15     # spine
-    li $a1, 11
+    #### V at x = 11..14, y = 6..10 ####
+    # left stroke
+    li $a0, 11
+    li $a1, 6
     li $a2, 1
     li $a3, 5
     jal draw_rect
-    li $a0, 15     # top bar
-    li $a1, 11
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-    li $a0, 15     # middle bar
-    li $a1, 13
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-    li $a0, 15     # bottom bar
-    li $a1, 15
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-
-    # R
-    li $a0, 19     # spine
-    li $a1, 11
+    # right stroke
+    li $a0, 14
+    li $a1, 6
     li $a2, 1
     li $a3, 5
     jal draw_rect
-    li $a0, 19     # top bar
-    li $a1, 11
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-    li $a0, 19     # middle bar
-    li $a1, 13
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-    li $a0, 21     # right of loop
-    li $a1, 12
-    li $a2, 1
-    li $a3, 2
-    jal draw_rect
-    li $a0, 20     # diagonal leg (2x2)
-    li $a1, 14
+    # bottom connector
+    li $a0, 12
+    li $a1, 10
     li $a2, 2
-    li $a3, 2
+    li $a3, 1
     jal draw_rect
 
-        ########################
-    # "RESTART" below
-    ########################
+    #### E at x = 16..19, y = 6..10 ####
+    # spine
+    li $a0, 16
+    li $a1, 6
+    li $a2, 1
+    li $a3, 5
+    jal draw_rect
+    # top bar
+    li $a0, 16
+    li $a1, 6
+    li $a2, 4
+    li $a3, 1
+    jal draw_rect
+    # middle bar
+    li $a0, 16
+    li $a1, 8
+    li $a2, 4
+    li $a3, 1
+    jal draw_rect
+    # bottom bar
+    li $a0, 16
+    li $a1, 10
+    li $a2, 4
+    li $a3, 1
+    jal draw_rect
 
-    # first R in red
+    #### R at x = 21..24, y = 6..10 ####
+    # spine
+    li $a0, 21
+    li $a1, 6
+    li $a2, 1
+    li $a3, 5
+    jal draw_rect
+    # top bar
+    li $a0, 21
+    li $a1, 6
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # middle bar
+    li $a0, 21
+    li $a1, 8
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # right side of loop
+    li $a0, 23
+    li $a1, 7
+    li $a2, 1
+    li $a3, 2
+    jal draw_rect
+    # lower leg 
+    li $a0, 22          # x
+    li $a1, 9           # y
+    li $a2, 1           # width
+    li $a3, 1           # height
+    jal draw_rect
+    
+    # additional pixel
+    li $a0, 23          # x
+    li $a1, 10           # y
+    li $a2, 1           # width
+    li $a3, 1           # height
+    jal draw_rect
+
+    # "RESTART" below 
+
+    #### First R in RED ####
     lw  $t1, RED
 
-    li $a0, 4      # spine
-    li $a1, 17
+    # R at x = 3..5, y = 14..18
+    # spine
+    li $a0, 3
+    li $a1, 14
     li $a2, 1
-    li $a3, 4
+    li $a3, 5
     jal draw_rect
-    li $a0, 4      # top bar
-    li $a1, 17
-    li $a2, 2
+    # top bar
+    li $a0, 3
+    li $a1, 14
+    li $a2, 3
     li $a3, 1
     jal draw_rect
-    li $a0, 4      # middle bar
-    li $a1, 18
-    li $a2, 2
+    # middle bar
+    li $a0, 3
+    li $a1, 16
+    li $a2, 3
     li $a3, 1
     jal draw_rect
-    li $a0, 5      # right of loop
-    li $a1, 18
+    # right of loop
+    li $a0, 5
+    li $a1, 15
     li $a2, 1
-    li $a3, 1
+    li $a3, 2
+    jal draw_rect
+    # small lower leg
+    li $a0, 4          # x
+    li $a1, 17         # y
+    li $a2, 1          # width
+    li $a3, 1          # height
+    jal draw_rect
+    
+    # one additional pixel
+    li $a0, 5          # x
+    li $a1, 18         # y
+    li $a2, 1          # width
+    li $a3, 1          # height
     jal draw_rect
 
-    # "ESTART" in white
+    #### "ESTART" in WHITE ####
     lw  $t1, WHITE
 
-    # E
-    li $a0, 7      # spine
+    #### E at x = 7..9 ####
+    # spine
+    li $a0, 7
+    li $a1, 14
+    li $a2, 1
+    li $a3, 5
+    jal draw_rect
+    # top bar
+    li $a0, 7
+    li $a1, 14
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # middle bar
+    li $a0, 7
+    li $a1, 16
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # bottom bar
+    li $a0, 7
+    li $a1, 18
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+
+    #### S at x = 11..13 ####
+    # top
+    li $a0, 11
+    li $a1, 14
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # upper left
+    li $a0, 11
+    li $a1, 15
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+    # middle
+    li $a0, 11
+    li $a1, 16
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # lower right
+    li $a0, 13
     li $a1, 17
+    li $a2, 1
+    li $a3, 1
+    jal draw_rect
+    # bottom
+    li $a0, 11
+    li $a1, 18
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+
+    #### T at x = 15..17 ####
+    # top bar
+    li $a0, 15
+    li $a1, 14
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # stem
+    li $a0, 16
+    li $a1, 15
     li $a2, 1
     li $a3, 4
     jal draw_rect
-    li $a0, 7      # top
-    li $a1, 17
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-    li $a0, 7      # mid
-    li $a1, 18
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-    li $a0, 7      # bottom
-    li $a1, 20
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
 
-    # S
-    li $a0, 10     # top
-    li $a1, 17
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-    li $a0, 10     # upper left
-    li $a1, 18
+    #### A at x = 19..21 ####
+    # peak
+    li $a0, 20
+    li $a1, 14
     li $a2, 1
     li $a3, 1
     jal draw_rect
-    li $a0, 10     # middle
-    li $a1, 19
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-    li $a0, 11     # lower right
-    li $a1, 20
-    li $a2, 1
-    li $a3, 1
-    jal draw_rect
-    li $a0, 10     # bottom
-    li $a1, 20
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-
-    # T
-    li $a0, 13     # top bar
-    li $a1, 17
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-    li $a0, 14     # stem
-    li $a1, 18
-    li $a2, 1
-    li $a3, 3
-    jal draw_rect
-
-    # A
-    li $a0, 17     # left
-    li $a1, 18
-    li $a2, 1
-    li $a3, 3
-    jal draw_rect
-    li $a0, 19     # right
-    li $a1, 18
-    li $a2, 1
-    li $a3, 3
-    jal draw_rect
-    li $a0, 17     # middle bar
-    li $a1, 18
-    li $a2, 3
-    li $a3, 1
-    jal draw_rect
-    li $a0, 18     # peak
-    li $a1, 17
-    li $a2, 1
-    li $a3, 1
-    jal draw_rect
-
-    # R
-    li $a0, 21     # spine
-    li $a1, 17
+    # left leg
+    li $a0, 19
+    li $a1, 15
     li $a2, 1
     li $a3, 4
     jal draw_rect
-    li $a0, 21     # top bar
-    li $a1, 17
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-    li $a0, 21     # mid bar
-    li $a1, 18
-    li $a2, 2
-    li $a3, 1
-    jal draw_rect
-    li $a0, 22     # right of loop
-    li $a1, 18
+    # right leg
+    li $a0, 21
+    li $a1, 15
     li $a2, 1
-    li $a3, 1
+    li $a3, 4
     jal draw_rect
-
-    # final T
-    li $a0, 25     # top bar
-    li $a1, 17
+    # middle bar
+    li $a0, 19
+    li $a1, 16
     li $a2, 3
     li $a3, 1
     jal draw_rect
-    li $a0, 26     # stem
-    li $a1, 18
+
+    #### second R at x = 23..25 ####
+    # spine
+    li $a0, 23
+    li $a1, 14
     li $a2, 1
-    li $a3, 3
+    li $a3, 5
+    jal draw_rect
+    # top bar
+    li $a0, 23
+    li $a1, 14
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # middle bar
+    li $a0, 23
+    li $a1, 16
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # right of loop
+    li $a0, 25
+    li $a1, 15
+    li $a2, 1
+    li $a3, 2
+    jal draw_rect
+    # lower leg 
+    li $a0, 24         # x
+    li $a1, 17         # y
+    li $a2, 1          # width
+    li $a3, 1          # height
+    jal draw_rect
+    
+     #addtional pixel
+    li $a0, 25         # x
+    li $a1, 18         # y
+    li $a2, 1          # width
+    li $a3, 1          # height
+    jal draw_rect
+
+    #### final T at x = 27..29 ####
+    # top bar
+    li $a0, 27
+    li $a1, 14
+    li $a2, 3
+    li $a3, 1
+    jal draw_rect
+    # stem
+    li $a0, 28
+    li $a1, 15
+    li $a2, 1
+    li $a3, 4
     jal draw_rect
 
     # finished drawing, now wait for 'r'
