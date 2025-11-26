@@ -36,6 +36,7 @@ PURPLE: .word 0x6f2da8
 GREY: .word 0x808080
 BLACK: .word 0x000000
 WHITE:  .word 0xffffff
+OUTLINE: .word 0x333333
 
 
 # An array of the gem colours
@@ -53,18 +54,8 @@ RIGHT_BOUNDARY: .word 11 # the x coordinate for the right wall
 TOP_BOUNDARY: .word 14 # the y coordinate for the ceiling
 BOTTOM_BOUNDARY: .word 28 # the y coordinate for the floor
 
-##############################################################################
-# Mutable Data
-##############################################################################
-
-current_column: .space 20 # the coloumn will be represented with 5 pieces of information: x position, y position, colour1, colour2 and colour3
-
-can_move_left: .word 0x0 # keeps track of whether the current column can move left
-can_move_right: .word 0x0 # keeps track of whether the current column can move right
-has_landed: .word 0x0 # keeps track of whether the current column has either reached the floor or landed on a past column
 
 gravity_counter: .word 0          # counts ticks until next automatic drop
-
 gravity_speed:        .word 60     # current number of ticks between drops
 gravity_min_speed:    .word 15     # fastest allowed speed (smaller = faster)
 gravity_level_timer:  .word 0      # counts ticks until we speed up gravity
@@ -78,7 +69,20 @@ HARD_TICKS:      .word 40     # fastest
 DIFF_PROMPT: .asciiz "Select difficulty: 1 = Easy, 2 = Medium, 3 = Hard\n"
 
     .align 2                 # ensure next label is word-aligned (2^2 = 4 bytes)
+
+##############################################################################
+# Mutable Data
+##############################################################################
+
+current_column: .space 20 # the coloumn will be represented with 5 pieces of information: x position, y position, colour1, colour2 and colour3
+
+can_move_left: .word 0x0 # keeps track of whether the current column can move left
+can_move_right: .word 0x0 # keeps track of whether the current column can move right
+has_landed: .word 0x0 # keeps track of whether the current column has either reached the floor or landed on a past column
+    
 bitmap_copy: .space 4096     # stores a mirror of the bitmap in memory
+
+next_colours: .space 60 # stores the colours for the next five columns
 
 ##############################################################################
 # Code
@@ -107,16 +111,21 @@ sw $zero, gravity_level_timer
 # gravity_speed will be overwritten by choose_difficulty anyway, so we don't strictly need to set it here
 
 # let the player choose difficulty
-    jal choose_difficulty
+jal choose_difficulty
 
 ## Draw the Grid ##
-jal draw_grid                   
+jal draw_grid
+
+## Draw the preview panel ##
+jal initialize_next_colours
+jal draw_preview_grid
 
 ## Initialize a column at the top middle of the playing field ##
 jal initialize_player_column
 
-## Draw the column ##
+## Draw the column and the outline ##
 jal draw_current_column
+jal draw_outline
 
 game_loop:
 # 1a. Check if key has been pressed 
@@ -137,6 +146,7 @@ beq $a0, 0x77, respond_to_W         # Check if the key w was pressed
 beq $a0, 0x61, respond_to_A         # Check if the key a was pressed
 beq $a0, 0x73, respond_to_S         # Check if the key s was pressed
 beq $a0, 0x64, respond_to_D         # Check if the key d was pressed
+beq $a0, 0x70, respond_to_P         # Check if the key p was pressed
 
 keyboard_input_processed:           # finished checking if a key was pressed and responded accordingly
 
@@ -166,29 +176,31 @@ jal drop_all_rows                       # drop all of the unsupported gems
 j match_checking_loop_start             # we repeat this process in case dropping the unsupported gems formed new matches
 
 match_checking_loop_end:
-jal initialize_player_column        # Initialize a new column 
-jal draw_current_column             # Draw this new column to the screen
+jal initialize_player_column            # Initialize a new column 
+jal draw_current_column                 # Draw this new column to the screen
+jal draw_outline                        # Draw the outline for the new column
 
 skip_landing_logic:
 
-    # Gradually speed up gravity over time (Easy Feature 2)
-    jal update_gravity_speed
+# Gradually speed up gravity over time (Easy Feature 2)
+jal update_gravity_speed
 
-    # Apply gravity automatically each tick (Easy Feature 1)
-    jal apply_gravity
+# Apply gravity automatically each tick (Easy Feature 1)
+jal apply_gravity
 
-    # Sleep
-    li $v0, 32
-    li $a0, 17
-    syscall
+# Sleep
+li $v0, 32
+li $a0, 17
+syscall
 
-    # Go back to Step 1
-    j game_loop
+# Go back to Step 1
+j game_loop
 
 ##############################################################################
 # The Helper Functions
 ##############################################################################
 
+###############################################################################################################
 ##  The draw_line function
 ##  - Draws a horizontal line from a given X and Y coordinate 
 #
@@ -218,6 +230,7 @@ j line_loop_start            # jump to the start of the loop
 line_loop_end:
 jr $ra                  # return to the calling program.
 
+###############################################################################################################
 
 ##  The draw_rect function
 ##  - Draws a rectangle at a given X and Y coordinate 
@@ -257,6 +270,7 @@ j rect_loop_start               # jump to the top of the loop.
 rect_loop_end:
 jr $ra                          # return to the calling program.
 
+###############################################################################################################
 
 ## The draw_grid function
 ## - draws the grid which outlines the 6x13 playing field
@@ -302,6 +316,8 @@ addi $sp, $sp, 4           # move the stack pointer to the top stack element
 
 jr $ra                     # return to the calling program    
 
+###############################################################################################################
+
 ## The get_random_colour function
 ## - stores a random selection of red, green, blue, orange, yellow or purple into $t1
 
@@ -317,35 +333,38 @@ syscall
 # 0 -> red, 1 -> green, 2 -> blue, 3 -> orange, 4 -> yellow, 5 -> pruple
 
 check_red: bne $a0, 0, check_green          # if $a0 != 0 then check the case for green
-           lw $t1, RED                      # else set  $t0 to RED
+           lw $t1, RED                      # else set  $t1 to RED
            j colour_selected                # jump to end
            
 check_green: bne $a0, 1, check_blue         # if $a0 != 1 then check the case for blue
-             lw $t1, GREEN                  # else set  $t0 to GREEN
+             lw $t1, GREEN                  # else set  $t1 to GREEN
              j colour_selected              # jump to end
              
 check_blue: bne $a0, 2, check_orange        # if $a0 != 2 then check the case for orange
-            lw $t1, BLUE                    # else set  $t0 to BLUE
+            lw $t1, BLUE                    # else set  $t1 to BLUE
             j colour_selected               # jump to end
             
 check_orange: bne $a0, 3, check_yellow      # if $a0 != 3 then check the case for yellow
-              lw $t1, ORANGE                # else set  $t0 to ORANGE
+              lw $t1, ORANGE                # else set  $t1 to ORANGE
               j colour_selected             # jump to end
               
 check_yellow: bne $a0, 4, check_purple      # if $a0 != 4 then check the case for purple
-              lw $t1, YELLOW                # else set  $t0 to YELLOW
+              lw $t1, YELLOW                # else set  $t1 to YELLOW
               j colour_selected             # jump to end
               
 check_purple: lw $t1, PURPLE                # program only reaches here if and only if $a0 == 5
-                                            # so set $t0 to PURPLE
+                                            # so set $t1 to PURPLE
 colour_selected:    
 jr $ra                                      # return to the calling program
 
+###############################################################################################################
 
 ## The initialize_player_column function
 ## - initializes a new column at the top middle of the playing area with three random colours
 
 initialize_player_column:
+addi $sp, $sp, -4               # move the stack pointer to an empty location
+sw $ra, 0($sp)                  # push $ra onto the stack (this is the address that takes us back to our main game loop)
 
 # first we set the x,y position of the column to roughly the top center of playing field
 
@@ -357,22 +376,24 @@ lw $t3, TOP_BOUNDARY            # $t3 holds the y position of the ceiling
 addi $t3, $t3, 1                # add 1 to $t3 so it now holds an y position of the top of the playing field
 sw $t3, 4($t2)                  # store this value of $t3 as the y position of the column
 
-# second we need to give the column three random colours
+# second we need to set the colours of the column to the first three colours in the colours_array
 
-addi $sp, $sp, -4               # move the stack pointer to an empty location
-sw $ra, 0($sp)                  # push $ra onto the stack (this is the address that takes us back to our main game loop)
-
-jal get_random_colour           # this puts a random colour in $t1
+la $t0, next_colours            # load the starting address of the next_colours array into $t0
+lw $t1, 0($t0)                  # load the first colour in the next_colours array into $t1
 sw $t1, 8($t2)                  # store this as the first colour of the column
-jal get_random_colour           # this puts a random colour in $t1
+lw $t1, 4($t0)                  # load the second colour in the next_colours array into $t1
 sw $t1, 12($t2)                 # store this as the second colour of the column
-jal get_random_colour           # this puts a random colour in $t1
+lw $t1, 8($t0)                  # load the third colour in the next_colours array into $t1
 sw $t1, 16($t2)                 # store this as the third colour of the column
+
+jal generate_next_colours       # generate 3 new colours in colours_array
+jal draw_preview_columns        # Draw the updated preview columns to the screen
 
 lw $ra, 0($sp)                  # pop $ra from the stack (this is the address that takes us back to our main game loop)
 addi $sp, $sp, 4                # move the stack pointer to the top stack element
 jr $ra                          # return to the game loop
 
+###############################################################################################################
 
 ## The draw_current_column function
 ## - draws the current column struct stored in memory to the bitmap
@@ -401,6 +422,7 @@ sw $t2, 256($t3)                # paint the third gem to the bitmap
 
 jr $ra                          # return to the calling program
 
+###############################################################################################################
 
 ## The erase_current_column function
 ## - erases the current column from the bitmap
@@ -578,11 +600,14 @@ lw $t3, can_move_left                       # $t3 either holds a 1 or 0 which ch
 beq $t3, $zero, keyboard_input_processed    # if $t3 == 0, column is blocked so do not try to move it left just return to game loop
 
 jal erase_current_column                    # erase the column from the bitmap since it is going to be moved
+jal erase_outline
+
 la $t1, current_column                      # $t1 holds the address of the column struct
 lw $t2, 0($t1)                              # $t2 holds the x position of the column
 addi $t2, $t2 -1                            # decrement the x position by 1 (move to the left)
 sw $t2, 0($t1)                              # update the x position of the column
 
+jal draw_outline
 jal draw_current_column                     # Draw the column in its updated location to the bitmap
 j keyboard_input_processed                  # return to game loop
 
@@ -606,11 +631,14 @@ lw $t3, can_move_right                      # $t3 either holds a 1 or 0 which ch
 beq $t3, $zero, keyboard_input_processed    # if $t3 == 1, column is blocked so do not try to move it right just return to game loop
 
 jal erase_current_column                    # erase the column from the bitmap since it is going to be moved
+jal erase_outline
+
 la $t1, current_column                      # $t1 holds the address of the column struct
 lw $t2, 0($t1)                              # $t2 holds the x position of the column
 addi $t2, $t2 1                             # increment the x position by 1 (move to the right)
 sw $t2, 0($t1)                              # update the x position of the column
 
+jal draw_outline
 jal draw_current_column                     # Draw the column in its updated location to the bitmap
 j keyboard_input_processed                  # return to game loop
 
@@ -772,7 +800,15 @@ add $t4, $t4, $t3                           # add this vertical offset to $t4, $
 lw $t2, 0($t4)                              # store the colour in the bitmap at this address in $t2 (we do not need $t2's previous value anymore)
 
 lw $t3, BLACK                               # store the colour black in $t3
-bne $t2, $t3, below_blocked                 # if the colour at that location is not black then below the column is blocked 
+lw $t9, OUTLINE                             # store the outline colour in $t9
+
+bne $t2, $t3, check_is_outline              # if the colour at that location is not black then check to see if its the outline
+j below_clear
+
+check_is_outline:
+bne $t2, $t9, below_blocked                 # if the colour at the location is not black AND not an the outline then the column has landed
+
+below_clear:
 sw $zero, has_landed                        # set has_landed to 0 to indicate that the column has not reached the floor or landed on a past column
 jr $ra                                      # return to game loop
 
@@ -1718,3 +1754,362 @@ draw_game_over_screen:
 
     # finished drawing, now wait for 'r'
     j   wait_for_retry
+
+###############################################################################################################
+
+## the initialize_next_colours function \
+## - initializes the next_colours array so that is stores 15 random colours
+
+initialize_next_colours:
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $ra, 0($sp)                                  # push $ra onto the stack (this is the address that takes us back to our main game loop)
+
+la $t0, next_colours                            # load  the starting address of the next_colours array into $t0
+add $t2, $zero, $zero                           # store the offset from the starting address in $t2
+
+initialize_next_colours_loop_start:
+beq $t2, 60, initialize_next_colours_loop_end   # if $t2 == 60 then all 15 colours have been placed in the array
+jal get_random_colour                           # store a random colour in $t1
+sw $t1, 0($t0)                                  # load the colour into the current address stored in $t0
+addi $t2, $t2, 4                                # increment the offset
+addi $t0, $t0, 4                                # increment the address accordingly
+j initialize_next_colours_loop_start            # repeat until all colours have been placed in the array
+
+initialize_next_colours_loop_end:
+lw $ra, 0($sp)                                  # pop $ra from the stack (this is the address that takes us back to our main game loop)
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+jr $ra                                          # return to the calling program
+
+###############################################################################################################
+
+## the draw_preview_grid function 
+## - draws the grid of the panel which will display the next 5 columns
+
+draw_preview_grid:
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $ra, 0($sp)                                  # push $ra onto the stack (this is the address that takes us back to our main game loop)
+
+add $t0, $zero, $s0                             # set $t0 to the base address of the bitmap
+lw $t1, GREY                                    # store the colour into $t1
+
+# Draw top horizontal
+addi $a0, $zero, 15        # set X coordinate to 15
+addi $a1, $zero, 14        # set Y coordinate to 14
+addi $a2, $zero, 13        # set rect length to 13
+addi $a3, $zero, 1         # set rect height to 1
+jal draw_rect              # call the rectangle drawing code
+
+# Draw left vertical
+addi $a0, $zero, 15        # set X coordinate to 15
+addi $a1, $zero, 14        # set Y coordinate to 14
+addi $a2, $zero, 1         # set rect length to 1
+addi $a3, $zero, 5         # set rect height to 5
+jal draw_rect              # call the rectangle drawing code
+
+# Draw bottom horizontal
+addi $a0, $zero, 15        # set X coordinate to 15
+addi $a1, $zero, 18        # set Y coordinate to 18
+addi $a2, $zero, 13        # set rect length to 8
+addi $a3, $zero, 1         # set rect height to 1
+jal draw_rect              # call the rectangle drawing code
+
+# Draw right vertical 
+addi $a0, $zero, 27        # set X coordinate to 27
+addi $a1, $zero, 14        # set Y coordinate to 14
+addi $a2, $zero, 1         # set rect length to 1
+addi $a3, $zero, 5         # set rect height to 5
+jal draw_rect              # call the rectangle drawing code
+
+
+lw $ra, 0($sp)             # pop $ra from the stack (this is the address that takes us back to our main game loop)
+addi $sp, $sp, 4           # move the stack pointer to the top stack element
+jr $ra                     # return to the calling program
+
+###############################################################################################################
+## the draw_preview_columns function
+## - draws the preview columns from based on the colours stored in the next_colours array
+
+draw_preview_columns:
+
+la $t0, next_colours                            # loads the starting address of the next_colours array into $t0
+add $t1, $zero, $s0                             # store the starting address of the bitmap in $t1
+addi $t2, $zero, 1988                           # store the offset from this starting address in $t2 (1988 is the offset needed to draw the first preview column at x=17, y=15)
+add $t1, $t1, $t2                               # add this offset to the starting address
+
+draw_preview_loop_start:
+beq $t2, 2028, draw_preview_loop_end            # when $t2 reaches 2028 we would have drawn all the columns
+
+lw $t3, 0($t0)                                  # store the first colour of the column in $t3
+sw $t3, 0($t1)                                  # paint the first gem of this column to the bitmap
+
+addi $t0, $t0, 4                                # move to the address of the second colour
+lw $t3, 0($t0)                                  # store the second colour of the column in $t3
+sw $t3, 128($t1)                                # paint the second gem of this column to the bitmap
+
+addi $t0, $t0, 4                                # move to the address of the third colour
+lw $t3, 0($t0)                                  # store the third colour of the column in $t3
+sw $t3, 256($t1)                                # paint the third gem of this column to the bitmap
+
+addi $t2, $t2, 8                                # increment the offset for bitmap
+addi $t1, $t1, 8                                # increment the current address for the bitmap accordingly
+addi $t0, $t0, 4                                # move to the address of the first colour for the next column
+j draw_preview_loop_start                       # jump to loop start
+
+draw_preview_loop_end:
+jr $ra
+
+
+###############################################################################################################
+
+## the generate_next_colours function 
+## - generates 3 new colours for the next_colours array and moves the colours in the lower 12 spots to the upper 12 spots
+
+generate_next_colours:
+addi $sp, $sp, -4                               # move the stack pointer to an empty location
+sw $ra, 0($sp)                                  # push $ra onto the stack (this is the address that takes us back to our main game loop)
+
+la $t0, next_colours                            # load the starting address of the next_colours array into $t0
+addi $t1, $zero, 12                             # store the offset (3 colours down) from the starting address in $t1
+add $t2, $t0, $t1                               # store the offsetted address in $t2
+
+shift_colours_loop_start:
+beq $t1, 60, shift_colours_loop_end     # when the offset reaches 60, we would have shifted all the colours 
+
+lw $t3, 0($t2)                                  # load the colour 3 spaces down in $t3
+sw $t3, 0($t0)                                  # store this colour at the current address 
+
+addi $t1, $t1, 4                                # increment the offset
+addi $t2, $t2, 4                                # increment the offsetted address
+addi $t0, $t0, 4                                # increment the current address
+j shift_colours_loop_start
+
+shift_colours_loop_end:
+
+jal get_random_colour                           # load a random colour into $t1
+sw $t1, 0($t0)                                  # store that colour in the current address (which would be the third to last space at this point)
+jal get_random_colour                           # load a random colour into $t1
+sw $t1, 4($t0)                                  # store that colour 1 space down from the current address
+jal get_random_colour                           # load a random colour into $t1
+sw $t1, 8($t0)                                  # store that colour 2 spaces down from the current address
+
+lw $ra, 0($sp)                                  # pop $ra from the stack (this is the address that takes us back to our main game loop)
+addi $sp, $sp, 4                                # move the stack pointer to the top stack element
+jr $ra                                          # return to calling program
+
+###############################################################################################################
+
+# the draw_paused_text function
+# - draws the word "PAUSED" to the bitmap 
+
+# $a0 = the text colour
+
+draw_paused_text:
+add $t0, $zero, $s0                             # load the starting address of the bitmap into $t0
+addi $t0, $t0, 648                              # add the offset (x=3, y=5) for the starting point of the letter P to the base address
+
+# draw the letter P
+sw $a0, 0($t0)
+sw $a0, 4($t0)
+sw $a0, 8($t0)
+sw $a0, 264($t0)
+sw $a0, 128($t0)
+sw $a0, 256($t0)
+sw $a0, 384($t0)
+sw $a0, 512($t0)
+sw $a0, 140($t0)
+sw $a0, 260($t0)
+
+
+addi $t0, $t0, 20                               # offsets to the starting point for the letter A
+
+# draw the letter A
+sw $a0, 4($t0)
+sw $a0, 128($t0)
+sw $a0, 256($t0)
+sw $a0, 384($t0)
+sw $a0, 512($t0)
+sw $a0, 8($t0)
+sw $a0, 260($t0)
+sw $a0, 264($t0)
+sw $a0, 268($t0)
+sw $a0, 140($t0)
+sw $a0, 396($t0)
+sw $a0, 524($t0)
+
+addi $t0, $t0, 20                               # offsets to the starting point for the letter U
+
+# draw the letter U
+sw $a0, 0($t0)
+sw $a0, 128($t0)
+sw $a0, 256($t0)
+sw $a0, 384($t0)
+sw $a0, 516($t0)
+sw $a0, 520($t0)
+sw $a0, 12($t0)
+sw $a0, 140($t0)
+sw $a0, 268($t0)
+sw $a0, 396($t0)
+
+addi $t0, $t0, 20                               # offsets to the starting point for the letter S
+
+# draw the letter S
+sw $a0, 4($t0)
+sw $a0, 128($t0)
+sw $a0, 512($t0)
+sw $a0, 8($t0)
+sw $a0, 516($t0)
+sw $a0, 260($t0)
+sw $a0, 392($t0)
+
+addi $t0, $t0, 16                               # offsets to the starting point for the letter E
+
+# draw the letter E
+sw $a0, 0($t0)
+sw $a0, 128($t0)
+sw $a0, 256($t0)
+sw $a0, 384($t0)
+sw $a0, 512($t0)
+sw $a0, 4($t0)
+sw $a0, 8($t0)
+sw $a0, 12($t0)
+sw $a0, 516($t0)
+sw $a0, 520($t0)
+sw $a0, 524($t0)
+sw $a0, 260($t0)
+sw $a0, 264($t0)
+
+addi $t0, $t0, 20                               # offsets to the starting point for the letter D
+
+# draw the letter D
+sw $a0, 0($t0)
+sw $a0, 128($t0)
+sw $a0, 256($t0)
+sw $a0, 384($t0)
+sw $a0, 512($t0)
+sw $a0, 4($t0)
+sw $a0, 8($t0)
+sw $a0, 140($t0)
+sw $a0, 516($t0)
+sw $a0, 520($t0)
+sw $a0, 268($t0)
+sw $a0, 396($t0)
+
+jr $ra
+
+###############################################################################################################
+
+# the respond_to_P function
+# - handles the logic when the player presses the "p" key
+
+respond_to_P:
+lw $a0, WHITE                               # load the colour white into $a0
+jal draw_paused_text                        # draw the text to the screen
+
+addi $t1, $zero, 0                          # store the timer/counter variable in $t1
+
+pause_loop_start:
+lw $t0, ADDR_KBRD                           # $t0 = base address for keyboard
+lw $t8, 0($t0)                              # Load first word from keyboard
+beq $t8, 1, paused_keyboard_input           # If first word 1, key is pressed
+
+j paused_keyboard_input_processed           # no key is pressed so we can skip processing logic
+
+paused_keyboard_input:                      # a key is pressed
+lw $a0, 4($t0)                              # Load second word from keyboard, the ascii-encoded value for the key that was pressed
+
+beq $a0, 0x71, respond_to_Q                 # Check if the key q was pressed
+beq $a0, 0x70, pause_loop_end               # Check if the key p was pressed
+
+paused_keyboard_input_processed:
+
+# handle the toggling of the text 
+
+addi $t1, $t1, 1                            # increment the counter by 1
+bne $t1, 30, skip_erase_text
+lw $a0, BLACK                               # load the colour black into $a0
+jal draw_paused_text                        # by drawing in black we erase the text from the bitmap
+
+skip_erase_text:
+beq $t1, 60, redraw_text
+j skip_redraw_text
+
+redraw_text:
+lw $a0, WHITE                               # load the colour white into $a0
+jal draw_paused_text                        # draw the text to the screen
+addi $t1, $zero, 0                          # reset the counter to 0
+
+skip_redraw_text:
+
+# Sleep
+li $v0, 32
+li $a0, 17
+syscall
+	
+j pause_loop_start
+
+pause_loop_end:
+lw $a0, BLACK                               # load the colour black into $a0
+jal draw_paused_text                        # by drawing in black we erase the text from the bitmap
+
+j keyboard_input_processed                  # return to the main game loop
+
+###############################################################################################################
+
+# the draw_outline function
+# - draws the outline of where the current column would end up if it is dropped
+
+draw_outline:
+
+lw $t0, BLACK                                   # store the colour black in $t0
+la $t1, current_column                          # $t1 holds the address of the column struct
+lw $t2, 0($t1)                                  # load the x position of the column into $t2
+sll $t2, $t2, 2                                 # multiply the x position by 4 to get the horizontal offset
+add $t3, $s0, $t2                               # add this horizontal offset to $s0 (base address for bitmap), store the result in $t3
+lw $t2, 4($t1)                                  # load the y position of the column into $t2
+addi $t2, $t2, 2                                # add 2 to get the y position of the bottom gem
+sll $t2, $t2, 7                                 # multiply the y position by 128 to get the vertical offset
+add $t3, $t3, $t2                               # add this vertical offset to $t3, $t3 now stores the bitmap address for the third gem in the column
+
+find_drop_point_loop_start:                     # this is the loop that finds the location for the outline
+addi $t4, $t3, 128                              # store the address directly below the current address in $t4
+lw $t5, 0($t4)                                  # store the colour at this address in $t6
+bne $t5, $t0, find_drop_point_loop_end          # if the colour below the gem is not black, the drop point has been found
+add $t3, $t4, $zero                             # if the colour below the gem is black, it can be dropped so update the current address to the address directly below
+
+j find_drop_point_loop_start                    # repeat until lowest point has been found
+    
+find_drop_point_loop_end:
+
+lw $t6, OUTLINE                                 # load the colour for the outline in $t6
+sw $t6, 0($t3)                                  # paint the current address (lowest point) 
+sw $t6, -128($t3)                               # paint the second lowest point  
+sw $t6, -256($t3)                               # paint the third lowest point 
+
+jr $ra                                          # return to the calling program
+
+###############################################################################################################
+
+# the erase_outline function
+# - erases the outline of where the current column would end up if it is dropped
+
+erase_outline:
+
+add $t1, $zero, $zero                               # $t1 will store the offset from the starting address
+add $t2, $zero, $s0                                 # $t2 stores the starting address for the bitmap
+lw $t3, OUTLINE                                     # load the outline colour into $t3
+lw $t4, BLACK                                       # load the colour black into $t4
+
+erase_outline_loop_start:
+beq $t1, 4096, erase_outline_loop_end               # the entire bitmap has been checked so we can end the loop
+lw $t5, 0($t2)                                      # get the colour at the current address in the bitmap 
+bne, $t5, $t3, erase_check_next_pixel               # check if the colour at the current address is the outline colour
+sw $t4, 0($t2)                                      # if the pixel is the outline colour, paint it black
+
+erase_check_next_pixel:
+addi $t1, $t1, 4                                    # increment $t1
+addi $t2, $t2, 4                                    # increment the bitmap address
+
+j erase_outline_loop_start                          # repeat until entire bitmap is checked
+
+erase_outline_loop_end:
+jr $ra                                              # return to calling program
